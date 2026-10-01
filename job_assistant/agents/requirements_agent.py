@@ -47,6 +47,7 @@ class Requirement(BaseModel):
 
 
 class RequirementsAssessment(BaseModel):
+    company: str = Field(description="Hiring company as named in the posting; empty string if not stated")
     role_title: str
     requirements: list[Requirement]
 

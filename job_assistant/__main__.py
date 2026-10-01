@@ -8,6 +8,7 @@ import sys
 from collections import Counter
 
 from job_assistant.config import ConfigError, Settings, load_settings
+from job_assistant.tracker.excel import Tracker, TrackerError, TrackerRow
 
 
 def _settings_or_exit() -> Settings:
@@ -89,7 +90,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     from job_assistant.agents.requirements_agent import RequirementsAgent
     from job_assistant.llm import get_chat_model
-    from job_assistant.pipeline import evaluate_posting
+    from job_assistant.pipeline import add_to_tracker, evaluate_posting
     from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
     from job_assistant.profile.store import ProfileStore, persistent_client
 
@@ -100,6 +101,19 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 2
     posting_text = Path(args.posting).read_text(encoding="utf-8")
+
+    tracker = Tracker(settings.tracker_path, settings.tracker_sheet) if settings.tracker_path.is_file() else None
+    if args.add and tracker is None:
+        print(f"Tracker not found at {settings.tracker_path}.", file=sys.stderr)
+        return 2
+    # Cheap duplicate check before spending an LLM call.
+    if tracker and (args.company or args.link):
+        early = tracker.find_duplicates(args.company or "", link=args.link or "")
+        if early.is_duplicate:
+            _print_rows("ALREADY IN TRACKER - skipping evaluation:", early.duplicates)
+            return 4
+        if early.same_company:
+            _print_rows("Note: same company already in tracker (other roles):", early.same_company)
 
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     result = evaluate_posting(
@@ -115,7 +129,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         print(f"  Years:   posting asks {fit.years_required}, profile has {profile.years_experience} ({status})")
 
     req = result.requirements
-    print(f"\nREQUIREMENTS CHECK: {req.role_title}")
+    print(f"\nREQUIREMENTS CHECK: {req.role_title} @ {args.company or req.company or '?'}")
     marks = {"met": "OK  ", "not_met": "FAIL", "unclear": "??  "}
     for r in req.requirements:
         print(f"  [{marks[r.status]}] ({r.kind}) {r.requirement}\n         {r.evidence}")
@@ -131,10 +145,57 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         print("Review these must-haves manually (not enough information in your profile):")
         for r in req.unclear_must_haves:
             print(f"  - {r.requirement}")
+
+    if args.add and tracker is not None:
+        try:
+            row = add_to_tracker(
+                tracker, result, settings.tracker_initial_status, args.company, args.link or ""
+            )
+        except TrackerError as e:
+            print(f"\nTracker: not added - {e}", file=sys.stderr)
+            return 4
+        print(f"\nTracker: added to sheet '{row.sheet}', row {row.row} (status: {row.status}).")
+    return 0
+
+
+def _print_rows(title: str, rows: list[TrackerRow]) -> None:
+    print(title)
+    for r in rows:
+        print(f"  - [{r.sheet} r{r.row}] {r.company} | {r.role} | {r.status} | {r.link}")
+
+
+def cmd_tracker(args: argparse.Namespace) -> int:
+    settings = _settings_or_exit()
+    try:
+        tracker = Tracker(settings.tracker_path, settings.tracker_sheet)
+    except TrackerError as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    if args.action == "list":
+        rows = tracker.rows()
+        for layout in tracker.layouts():
+            cols = ", ".join(f"{f}={c}" for f, c in layout.columns.items())
+            n = sum(1 for r in rows if r.sheet == layout.name)
+            print(f"Sheet '{layout.name}': header row {layout.header_row}, {n} rows ({cols})")
+        _print_rows("Rows:", rows)
+        return 0
+
+    check = tracker.find_duplicates(args.company or "", args.role or "", args.link or "")
+    if check.is_duplicate:
+        _print_rows("DUPLICATE:", check.duplicates)
+        return 4
+    if check.same_company:
+        _print_rows("Same company, different role:", check.same_company)
+    print("Not in tracker.")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(prog="job_assistant")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -152,7 +213,17 @@ def main(argv: list[str] | None = None) -> int:
 
     evaluate = sub.add_parser("evaluate", help="Fit score + requirements check for a posting file")
     evaluate.add_argument("posting", help="Path to a text file with the job posting")
+    evaluate.add_argument("--company", help="Company name (used for duplicate check / tracker row)")
+    evaluate.add_argument("--link", help="Posting URL (used for duplicate check / tracker row)")
+    evaluate.add_argument("--add", action="store_true", help="Add to the tracker if it passes")
     evaluate.set_defaults(func=cmd_evaluate)
+
+    tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
+    tracker.add_argument("action", choices=["list", "check"])
+    tracker.add_argument("--company")
+    tracker.add_argument("--role")
+    tracker.add_argument("--link")
+    tracker.set_defaults(func=cmd_tracker)
 
     args = parser.parse_args(argv)
     return args.func(args)

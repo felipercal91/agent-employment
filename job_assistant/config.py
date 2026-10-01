@@ -24,6 +24,10 @@ class Settings:
     data_dir: Path
     output_dir: Path
     vectorstore_dir: Path
+    tracker_path: Path
+    # Sheet that receives new rows; None = first sheet with recognizable headers.
+    tracker_sheet: str | None = None
+    tracker_initial_status: str = "Pending review"
     # Required only for API keys not scoped to a workspace.
     workspace_id: str | None = None
 
@@ -46,11 +50,16 @@ def load_settings(env_file: Path | None = None) -> Settings:
             "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
         )
 
+    data_dir = _resolve_dir(os.getenv("DATA_DIR"), "data")
+    tracker_env = os.getenv("TRACKER_PATH", "").strip()
     return Settings(
         anthropic_api_key=api_key,
         model=os.getenv("CLAUDE_MODEL", "").strip() or DEFAULT_MODEL,
-        data_dir=_resolve_dir(os.getenv("DATA_DIR"), "data"),
+        data_dir=data_dir,
         output_dir=_resolve_dir(os.getenv("OUTPUT_DIR"), "output"),
         vectorstore_dir=_resolve_dir(os.getenv("VECTORSTORE_DIR"), "vectorstore"),
+        tracker_path=_resolve_dir(tracker_env, "") if tracker_env else data_dir / "tracker.xlsx",
+        tracker_sheet=os.getenv("TRACKER_SHEET", "").strip() or None,
+        tracker_initial_status=os.getenv("TRACKER_INITIAL_STATUS", "").strip() or "Pending review",
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
     )

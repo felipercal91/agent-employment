@@ -39,6 +39,19 @@ python -m job_assistant evaluate examples/postings/product_owner_cpo.txt   # ter
 - **Fit score**: determinista (sin LLM). % de keywords técnicas del posting cubiertas por tus `skills`, −15 si piden más años de los que tienes. Muestra las que faltan.
 - **Requirements Check**: Claude clasifica cada requisito (must-have / nice-to-have; met / not_met / unclear). Si algún must-have es `not_met`, el flujo se detiene (exit code 3) y no se prepara material.
 
+## Tracker de Excel (Fase 4)
+
+Por defecto usa `data/tracker.xlsx` (trabaja sobre una **copia** de tu tracker). Detecta las columnas por nombre en cualquier hoja (Empresa/Company, Puesto/Role, Link/URL, Fit %, Estado/Status, Fecha/Date, Notas/Notes).
+
+```powershell
+python -m job_assistant tracker list                                     # hojas, columnas detectadas y filas
+python -m job_assistant tracker check --company "Shopify" --role "Backend Engineer"
+python -m job_assistant evaluate posting.txt --company "Acme" --link "https://..." --add
+```
+
+- Duplicado = mismo link (ignorando parámetros de tracking) o misma empresa + mismo puesto. Si es duplicado, no se llama a Claude.
+- `--add` solo agrega si pasó el Requirements Check. Antes de escribir crea un backup en `data/backups/` y se niega si el archivo está abierto en Excel.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
@@ -59,7 +72,7 @@ tests/
 1. ✅ Setup, estructura, .env, conexión a Claude
 2. ✅ Profile / RAG Agent (pendiente: indexar tus documentos reales)
 3. ✅ Scoring de fit + Requirements Check (pendiente: completar data/profile.toml)
-4. Tracker Agent (Excel)
+4. ✅ Tracker Agent (Excel) (pendiente: probar con copia de tu tracker real)
 5. Tailoring Agent + lógica Quebec
 6. Application Q&A Agent
 7. Recruiter CRM + Follow-up Agent

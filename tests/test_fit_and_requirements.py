@@ -112,6 +112,7 @@ def test_fit_no_keywords_is_neutral(profile: CandidateProfile) -> None:
 
 def assessment(*reqs: tuple[str, str]) -> RequirementsAssessment:
     return RequirementsAssessment(
+        company="Acme",
         role_title="Role",
         requirements=[
             Requirement(requirement=f"req {i}", kind=kind, status=status, evidence="e")  # type: ignore[arg-type]
