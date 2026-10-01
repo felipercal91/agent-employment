@@ -27,6 +27,18 @@ python -m job_assistant ask "What did interviewers criticize?" --category feedba
 ```
 
 Las respuestas se basan solo en tus documentos y citan las fuentes; si algo no está, responde `Not found in your documents.`
+## Fit + Requirements Check (Fase 3)
+
+Requiere `data/profile.toml` (copia de `examples/profile.example.toml` con tus datos reales).
+
+```powershell
+python -m job_assistant evaluate examples/postings/senior_java_toronto.txt
+python -m job_assistant evaluate examples/postings/product_owner_cpo.txt   # termina en STOP por CPO
+```
+
+- **Fit score**: determinista (sin LLM). % de keywords técnicas del posting cubiertas por tus `skills`, −15 si piden más años de los que tienes. Muestra las que faltan.
+- **Requirements Check**: Claude clasifica cada requisito (must-have / nice-to-have; met / not_met / unclear). Si algún must-have es `not_met`, el flujo se detiene (exit code 3) y no se prepara material.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
@@ -46,7 +58,7 @@ tests/
 
 1. ✅ Setup, estructura, .env, conexión a Claude
 2. ✅ Profile / RAG Agent (pendiente: indexar tus documentos reales)
-3. Scoring de fit + Requirements Check
+3. ✅ Scoring de fit + Requirements Check (pendiente: completar data/profile.toml)
 4. Tracker Agent (Excel)
 5. Tailoring Agent + lógica Quebec
 6. Application Q&A Agent

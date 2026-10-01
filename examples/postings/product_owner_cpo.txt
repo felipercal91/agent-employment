@@ -1,0 +1,11 @@
+Technical Product Owner - Payments Platform - Remote (Canada)
+
+Responsibilities:
+- Own the backlog for our core payments APIs and work closely with Java engineering teams
+- Translate business needs into user stories and acceptance criteria
+
+Requirements:
+- Certified Product Owner (CPO / CSPO) certification is mandatory
+- 5+ years of experience as a Product Owner in Agile/Scrum teams
+- Technical background in backend systems (Java, microservices) is a strong asset
+- Excellent written and verbal communication in English

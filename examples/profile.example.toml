@@ -1,0 +1,19 @@
+# Copy to data/profile.toml and fill in with your REAL data only.
+# Skills are matched against job postings, so list every technology you can defend in an interview.
+
+name = "Your Name"
+title = "Senior Java Backend Developer"
+years_experience = 13
+
+skills = [
+  "Java 17", "Spring Boot", "Spring Cloud", "Microservices", "REST APIs",
+  "Kafka", "Hibernate/JPA", "PostgreSQL", "Oracle", "Docker", "Git", "Maven", "JUnit",
+]
+
+# Only certifications you actually hold (used to detect hard mismatches).
+certifications = []
+
+education = ["B.Sc. Computer Engineering"]
+spoken_languages = ["Spanish (native)", "English (professional)", "French (intermediate)"]
+work_authorization = "Permanent resident of Canada"
+locations = ["Toronto", "Montreal", "Remote (Canada)"]

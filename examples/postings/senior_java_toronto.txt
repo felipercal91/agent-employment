@@ -1,0 +1,16 @@
+Senior Java Backend Developer - Toronto, ON (Hybrid)
+
+We are a payments company looking for a Senior Java Developer to join our platform team.
+
+Requirements:
+- 8+ years of professional experience in backend development with Java 17
+- Strong experience with Spring Boot and microservices architecture
+- Experience with Apache Kafka and event-driven systems
+- Solid knowledge of PostgreSQL and REST API design
+- Experience with Docker and Kubernetes
+- Must be legally authorized to work in Canada
+
+Nice to have:
+- AWS experience
+- Exposure to Terraform
+- Experience with GitHub Actions CI/CD pipelines
