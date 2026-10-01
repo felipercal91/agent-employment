@@ -1,0 +1,73 @@
+# Copy to data/cv_master.toml and replace with your real facts.
+# Fixed facts the CV writer can never change; bullets are source material it may rephrase.
+
+[contact]
+name = "ALEX SAMPLE"
+location = "Toronto, ON, Canada"
+phone = "(000) 000-0000"
+email = "alex@example.com"
+linkedin = "linkedin.com/in/alex-sample"
+file_prefix = "Alex_Sample"
+
+[default_title]
+en = "Senior Java Developer"
+fr = "Développeur Java sénior"
+
+[[experience]]
+id = "bank"
+company = "Sample Bank"
+location = "Toronto, ON"
+title_en = "Software Developer"
+title_fr = "Développeur logiciel"
+dates_en = "January 2020 – June 2026"
+dates_fr = "Janvier 2020 – Juin 2026"
+bullets_en = [
+  "Built Spring Boot microservices for payment processing exposing RESTful APIs, handling 2 million transactions per day.",
+  "Implemented Apache Kafka event streaming between account and transfer services, cutting reconciliation time by 40%.",
+  "Reviewed code for a team of 8 developers working in Java and PostgreSQL.",
+]
+bullets_fr = [
+  "A construit des microservices Spring Boot pour le traitement des paiements exposant des API RESTful, traitant 2 millions de transactions par jour.",
+  "A mis en place des flux d'événements Apache Kafka entre les services de comptes et de virements, réduisant le temps de rapprochement de 40 %.",
+  "A révisé le code d'une équipe de 8 développeurs travaillant en Java et PostgreSQL.",
+]
+
+[[experience]]
+id = "insurer"
+company = "Sample Insurance"
+location = "Santiago, Chile"
+location_fr = "Santiago, Chili"
+title_en = "Java Developer"
+title_fr = "Développeur Java"
+dates_en = "March 2014 – December 2019"
+dates_fr = "Mars 2014 – Décembre 2019"
+bullets_en = [
+  "Developed J2EE modules for a policy administration system used by 300 agents.",
+  "Migrated Oracle PL/SQL batch jobs to Java services, reducing nightly run time by 25%.",
+]
+bullets_fr = [
+  "A développé des modules J2EE pour un système d'administration de polices utilisé par 300 agents.",
+  "A migré des traitements Oracle PL/SQL vers des services Java, réduisant la durée du traitement de nuit de 25 %.",
+]
+
+[education]
+en = ["Bachelor of Computer Science — Sample University — December 2013"]
+fr = ["Baccalauréat en informatique — Sample University — décembre 2013"]
+
+[certifications]
+en = "AWS Cloud Practitioner"
+fr = "AWS Cloud Practitioner"
+
+[languages]
+en = "English (C1), French (B2), Spanish (native)"
+fr = "Anglais (C1), français (B2), espagnol (langue maternelle)"
+
+[skills]
+tools_en = ["Java", "Spring Boot", "Apache Kafka", "PostgreSQL", "Oracle PL/SQL", "Docker", "Git"]
+tools_fr = ["Java", "Spring Boot", "Apache Kafka", "PostgreSQL", "Oracle PL/SQL", "Docker", "Git"]
+methodologies_en = ["Agile", "Scrum", "Code Review", "Microservices Architecture"]
+methodologies_fr = ["Agile", "Scrum", "Révision de code", "Architecture de microservices"]
+
+[summary_facts]
+en = "Java developer with 12 years of experience building Spring Boot microservices and Kafka integrations for banking and insurance."
+fr = "Développeur Java avec 12 ans d'expérience en microservices Spring Boot et intégrations Kafka pour la banque et l'assurance."

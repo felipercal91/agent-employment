@@ -524,6 +524,73 @@ def _check_candidates(args: argparse.Namespace, settings: Settings, profile: obj
     return "\n".join(lines) + "\n"
 
 
+def cmd_postular(args: argparse.Namespace) -> int:
+    from job_assistant.agents.hr_reviewer import HRReviewerAgent
+    from job_assistant.agents.requirements_agent import RequirementsAgent
+    from job_assistant.agents.resume_writer import ResumeWriterAgent
+    from job_assistant.cv import postular
+    from job_assistant.cv.master import MasterNotFoundError, load_master
+    from job_assistant.llm import get_chat_model
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+    from job_assistant.profile.store import ProfileStore, persistent_client
+
+    settings = _settings_or_exit()
+    path = settings.tracker_path
+    if not path.is_file():
+        print(f"Tracker not found at {path}. Run `tracker init` first.", file=sys.stderr)
+        return 2
+    try:
+        if postular.ensure_sheet(path):
+            print(f"Created sheet '{postular.SHEET}' in {path.name}. Add your postings (at least the "
+                  "Link column) and run `postular` again.")
+            return 0
+        master = load_master(settings.data_dir)
+        profile = load_candidate_profile(settings.data_dir)
+    except (TrackerError, MasterNotFoundError, ProfileNotFoundError) as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    rows = postular.pending_rows(path, args.row)
+    if not rows:
+        print("Nothing to do: no rows with Estado empty / Nuevo / Regenerar / Forzar.")
+        return 0
+
+    llm = get_chat_model(settings, max_tokens=16000)
+    agents = dict(
+        requirements=RequirementsAgent(llm), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(llm)
+    )
+    store = ProfileStore(persistent_client(settings.vectorstore_dir))
+    print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "
+          f"(max {args.max_rounds} rounds), PDF.")
+    failures = 0
+    for row in rows:
+        label = row.get("company") or row.get("link") or f"row {row['_row']}"
+        print(f"\n[row {row['_row']}] {label}")
+        try:
+            out = postular.process_row(
+                row, path=path, master=master, profile=profile, output_dir=settings.output_dir,
+                store=store, max_rounds=args.max_rounds, **agents,
+            )
+        except TrackerError as e:  # Excel open, etc.: stop, nothing else can be written
+            print(f"  ! {e}", file=sys.stderr)
+            return 2
+        except Exception as e:
+            logging.getLogger(__name__).exception("Row %s failed", row["_row"])
+            postular.table(path).update(row["_row"], {"status": postular.STATUS_ERROR,
+                                                      "hr_notes": f"Error: {type(e).__name__}. See console."})
+            print(f"  ! failed: {type(e).__name__}: {e}", file=sys.stderr)
+            failures += 1
+            continue
+        score = f" | HR {out.score}/10" if out.score is not None else ""
+        print(f"  {out.status}: {out.company} – {out.role}{score}")
+        if out.cv_path:
+            print(f"  CV: {out.cv_path}")
+        else:
+            print(f"  {out.detail}")
+    print(f"\nDone. Results written to sheet '{postular.SHEET}' in {path}.")
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -592,6 +659,11 @@ def main(argv: list[str] | None = None) -> int:
     discover.add_argument("--top", type=int, default=5)
     discover.add_argument("--add", action="store_true", help="With --check: add passing postings to the tracker")
     discover.set_defaults(func=cmd_discover)
+
+    post = sub.add_parser("postular", help="Write a CV for each posting listed in sheet 'Postular'")
+    post.add_argument("--row", type=int, help="Process only this Excel row (any status)")
+    post.add_argument("--max-rounds", type=int, default=3, help="Writer <-> HR review rounds (default 3)")
+    post.set_defaults(func=cmd_postular)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])

@@ -171,10 +171,16 @@ class SheetTable:
         wb.save(self.path)
         return row
 
-    def update(self, row: int, values: dict[str, Any]) -> None:
+    def update(self, row: int, values: dict[str, Any], links: dict[str, str] | None = None) -> None:
+        """Write `values` into `row`; `links` maps a field to a hyperlink target for its cell."""
         wb, ws, header_row, cols = self._open_for_write()
         if row <= header_row:
             raise WorkbookError(f"Row {row} is not a data row.")
         self._set(ws, row, cols, values)
+        for fld, target in (links or {}).items():
+            if fld in cols:
+                cell = ws.cell(row, cols[fld])
+                cell.hyperlink = target
+                cell.font = Font(color="0563C1", underline="single")
         backup(self.path)
         wb.save(self.path)

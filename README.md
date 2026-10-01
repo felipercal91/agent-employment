@@ -108,6 +108,22 @@ python -m job_assistant discover --check --top 5 --add    # + requirements check
 
 Filtra por título, ubicación y que mencione Java/Spring/Kotlin; descarta lo que ya está en el tracker; ordena por fit. Cada vacante nueva se guarda como .txt listo para `tailor`.
 
+## CVs a medida desde el Excel (flujo principal)
+
+1. En la hoja **Postular** de `data/tracker.xlsx` agrega una fila por vacante: mínimo el **Link** (o pega la descripción si el link es de LinkedIn/Indeed). Opcional: Empresa, Puesto, Idioma (`auto`/`en`/`fr`), Notas para el CV.
+2. Ejecuta:
+
+```powershell
+python -m job_assistant postular            # procesa filas con Estado vacío / Nuevo / Regenerar / Forzar
+python -m job_assistant postular --row 5    # solo esa fila, sin importar su estado
+```
+
+Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obligatorio que no cumples, se detiene salvo `Forzar`), el **Agente Redactor** escribe el CV con tus hechos fijos (`data/cv_master.toml`) y el **Agente HR** lo revisa (veracidad, cobertura, tono humano, claridad, ATS) hasta 3 rondas. Se conserva la mejor ronda.
+
+Salida en `output/cv/<fecha>_<empresa>_<puesto>/`: el PDF (`Felipe_Rodriguez_Resume_...` o `..._CV_...` en francés), `job_description.txt` y `revision_hr.md` (puntajes, observaciones, brechas, preguntas probables de entrevista). La fila se actualiza con Estado, Archivo CV (con link), Puntaje HR y Observaciones.
+
+Idioma: el del posting (o la columna Idioma). En Quebec el titular nunca dice Engineer/Ingénieur.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
