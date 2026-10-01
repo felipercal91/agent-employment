@@ -17,3 +17,14 @@ education = ["B.Sc. Computer Engineering"]
 spoken_languages = ["Spanish (native)", "English (professional)", "French (intermediate)"]
 work_authorization = "Permanent resident of Canada"
 locations = ["Toronto", "Montreal", "Remote (Canada)"]
+
+# Facts used to draft application-form answers. Leave a value empty if unknown:
+# the assistant will ask you instead of guessing.
+[situation]
+employment_status = "Unemployed since 2026-06 after a layoff"   # how your last job ended
+employment_end_reason = "layoff"      # layoff | resignation | contract_end | employed
+notice_period = "Available immediately"
+salary_expectation_cad = "120000-135000 base"   # numbers you are comfortable stating
+relocation = "Open to Toronto and Montreal"
+remote_preference = "Hybrid or remote"
+requires_sponsorship = "No"

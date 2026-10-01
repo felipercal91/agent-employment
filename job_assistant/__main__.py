@@ -253,6 +253,64 @@ def cmd_tailor(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_answer(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from job_assistant.agents.qa_agent import (
+        QAAgent,
+        flag_counts,
+        parse_questions,
+        render_answers_markdown,
+    )
+    from job_assistant.llm import get_chat_model
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+    from job_assistant.profile.loaders import load_documents
+    from job_assistant.tailoring.drafts import Draft, write_draft
+    from job_assistant.tailoring.market import detect_market, is_french_text
+
+    settings = _settings_or_exit()
+    try:
+        profile = load_candidate_profile(settings.data_dir)
+    except ProfileNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    questions = parse_questions(Path(args.questions).read_text(encoding="utf-8"))
+    if not questions:
+        print("No questions found in the file.", file=sys.stderr)
+        return 2
+    posting_text = Path(args.posting).read_text(encoding="utf-8") if args.posting else ""
+
+    if args.lang:
+        language = args.lang
+    elif is_french_text("\n".join(questions)):
+        language = "fr"
+    else:
+        language = detect_market(posting_text, company=args.company or "").language
+
+    history = [d for d in load_documents(settings.data_dir) if d.category == "qa_history"]
+    answers, issues = QAAgent(get_chat_model(settings, max_tokens=16000)).answer(
+        questions, profile, history, language, posting_text
+    )
+    company, role = args.company or "unknown", args.role or "application"
+    folder = write_draft(
+        settings.output_dir,
+        Draft(
+            company=company, role=role, kind="form_answers",
+            files={"form_answers.md": render_answers_markdown(answers, company, role, language)},
+            meta={"language": language, "flags": flag_counts(answers)},
+        ),
+    )
+    counts = flag_counts(answers)
+    print(f"Drafted {len(answers.answers)} answers ({language}); past answers used: {len(history)}")
+    print(f"  premise mismatches: {counts['premise']} | need your input: {counts['input']} "
+          f"| your decision: {counts['decision']}")
+    for a in answers.answers:
+        if a.premise_issue:
+            print(f"  ! {a.question[:70]}\n      -> {a.premise_issue}")
+    print(f"\nDraft PENDING APPROVAL in: {folder / 'form_answers.md'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -285,6 +343,14 @@ def main(argv: list[str] | None = None) -> int:
     tailor.add_argument("--company", help="Company name (otherwise taken from the posting)")
     tailor.add_argument("--lang", choices=["en", "fr"], help="Force the CV language")
     tailor.set_defaults(func=cmd_tailor)
+
+    answer = sub.add_parser("answer", help="Draft answers to application-form questions")
+    answer.add_argument("questions", help="Text file: questions separated by blank lines")
+    answer.add_argument("--posting", help="Optional posting file for context")
+    answer.add_argument("--company")
+    answer.add_argument("--role")
+    answer.add_argument("--lang", choices=["en", "fr"])
+    answer.set_defaults(func=cmd_answer)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])

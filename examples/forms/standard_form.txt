@@ -1,0 +1,9 @@
+What are your salary expectations (CAD, base)?
+
+Will you now or in the future require sponsorship for employment visa status?
+
+May we contact your current employer for a reference?
+
+Do you agree to the terms of our candidate privacy and disclosure agreement?
+
+How many years of experience do you have with Spring Boot?

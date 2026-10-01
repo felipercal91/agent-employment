@@ -24,6 +24,8 @@ class CandidateProfile:
     spoken_languages: list[str] = field(default_factory=list)
     work_authorization: str = ""
     locations: list[str] = field(default_factory=list)
+    # Free-form facts used to answer application forms (end of last job, salary, notice...).
+    situation: dict[str, str] = field(default_factory=dict)
 
     def as_prompt_text(self) -> str:
         def fmt(items: list[str]) -> str:
@@ -39,6 +41,12 @@ class CandidateProfile:
                 f"Spoken languages: {fmt(self.spoken_languages)}",
                 f"Work authorization: {self.work_authorization or '(not stated)'}",
                 f"Target locations: {fmt(self.locations)}",
+                *(
+                    [f"Situation / facts for application forms:"]
+                    + [f"  - {k}: {v}" for k, v in self.situation.items()]
+                    if self.situation
+                    else []
+                ),
             ]
         )
 
@@ -65,4 +73,5 @@ def load_candidate_profile(data_dir: Path) -> CandidateProfile:
         spoken_languages=list(raw.get("spoken_languages", [])),
         work_authorization=raw.get("work_authorization", ""),
         locations=list(raw.get("locations", [])),
+        situation={str(k): str(v) for k, v in raw.get("situation", {}).items() if str(v).strip()},
     )

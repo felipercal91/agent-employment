@@ -10,16 +10,22 @@
 from __future__ import annotations
 
 import re
-import shutil
 import unicodedata
 from copy import copy
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
+
+from job_assistant.tracker.workbook import (
+    WorkbookError,
+    WorkbookLockedError,
+    backup,
+    ensure_writable,
+)
 
 FIELDS = ("company", "role", "end_client", "location", "link", "fit", "status", "date", "source", "notes")
 
@@ -39,12 +45,8 @@ REQUIRED_FIELDS = {"company", "role"}
 HEADER_SCAN_ROWS = 10
 
 
-class TrackerError(RuntimeError):
-    pass
-
-
-class TrackerLockedError(TrackerError):
-    pass
+TrackerError = WorkbookError
+TrackerLockedError = WorkbookLockedError
 
 
 def _norm(text: object) -> str:
@@ -206,23 +208,12 @@ class Tracker:
 
     # ---- writing -----------------------------------------------------------
 
-    def _lock_file(self) -> Path:
-        return self.path.with_name(f"~${self.path.name}")
-
     def backup(self) -> Path:
-        backup_dir = self.path.parent / "backups"
-        backup_dir.mkdir(exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-        target = backup_dir / f"{self.path.stem}-{stamp}{self.path.suffix}"
-        shutil.copy2(self.path, target)
-        return target
+        return backup(self.path)
 
     def add(self, entry: NewEntry) -> TrackerRow:
         """Append `entry` to the target sheet. Refuses duplicates and open files."""
-        if self._lock_file().exists():
-            raise TrackerLockedError(
-                f"{self.path.name} is open in Excel. Close it and try again."
-            )
+        ensure_writable(self.path)
         if self.find_duplicates(entry.company, entry.role, entry.link).is_duplicate:
             raise TrackerError(f"{entry.company} / {entry.role} is already in the tracker.")
 
