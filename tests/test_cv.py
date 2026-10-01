@@ -460,3 +460,27 @@ def test_montreal_posting_passes_quebec_flag(sheet_path: Path, master: Any, tmp_
         fetch=lambda url: JobDescription(text=JD), renderer=fake_render, today=TODAY,
     )
     assert writer.calls[0]["quebec"] is True
+
+
+def test_short_summary_used_when_link_unreadable(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    add_row(sheet_path, link="https://www.linkedin.com/jobs/view/9", company="Cogency",
+            description="LinkedIn Easy Apply. 8+ years. Java, Spring Boot, microservices, Kafka, React, AWS.")
+
+    def refuse(url: str) -> JobDescription:
+        raise JobDescriptionError("linkedin.com does not allow automated reading")
+
+    [row] = postular.pending_rows(sheet_path)
+    out = run(sheet_path, master, tmp_path, row, fetch=refuse)
+    assert out.cv_path is not None
+    assert postular.table(sheet_path).rows()[0]["hr_notes"].startswith("Basado en un resumen corto")
+    assert "Basado en un resumen corto" in (out.cv_path.parent / "revision_hr.md").read_text(encoding="utf-8")
+
+
+def test_tiny_description_still_missing(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    add_row(sheet_path, link="https://www.linkedin.com/jobs/view/9", description="Java")
+
+    def refuse(url: str) -> JobDescription:
+        raise JobDescriptionError("blocked")
+
+    [row] = postular.pending_rows(sheet_path)
+    assert run(sheet_path, master, tmp_path, row, fetch=refuse).status == postular.STATUS_NO_JD

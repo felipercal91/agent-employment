@@ -45,6 +45,9 @@ STATUS_NO_JD = "Falta descripción"
 STATUS_MISMATCH = "No cumple requisito"
 STATUS_ERROR = "Error"
 STATUS_TODO = {"", "nuevo", "regenerar", "forzar"}
+MIN_FULL_DESCRIPTION = 200  # chars: a real job description
+MIN_SUMMARY = 40  # chars: a pasted summary, used only when the link cannot be read
+SUMMARY_WARNING = "Basado en un resumen corto (el link no se pudo leer): pega la descripción completa para un CV más preciso."
 STATUSES = ["Nuevo", "Regenerar", "Forzar", STATUS_READY, STATUS_MANUAL, STATUS_NO_JD,
             STATUS_MISMATCH, STATUS_ERROR, "Aplicado", "Descartado"]
 
@@ -150,15 +153,21 @@ def process_row(
     force = str(row.get("status") or "").strip().lower() == "forzar"
 
     # 1. Job description
-    if len(pasted) >= 200:
+    summary_only = False
+    if len(pasted) >= MIN_FULL_DESCRIPTION:
         jd = JobDescription(text=pasted, source="pasted in the sheet")
     else:
         try:
             jd = fetch(link)
         except JobDescriptionError as e:
-            sheet.update(row["_row"], {"status": STATUS_NO_JD, "hr_notes": str(e), "processed": today})
-            return RowOutcome(row["_row"], str(row.get("company") or ""), str(row.get("role") or ""),
-                              STATUS_NO_JD, str(e))
+            if len(pasted) >= MIN_SUMMARY:
+                # A short summary is better than nothing, but the review will be less precise.
+                jd = JobDescription(text=pasted, source="short summary pasted in the sheet")
+                summary_only = True
+            else:
+                sheet.update(row["_row"], {"status": STATUS_NO_JD, "hr_notes": str(e), "processed": today})
+                return RowOutcome(row["_row"], str(row.get("company") or ""), str(row.get("role") or ""),
+                                  STATUS_NO_JD, str(e))
 
     company = str(row.get("company") or jd.company or "").strip()
     role = str(row.get("role") or jd.title or "").strip()
@@ -195,13 +204,20 @@ def process_row(
     )
     if assessment.should_stop:
         verify = [f"NO CUMPLES: {r.requirement}" for r in assessment.hard_mismatches] + verify
-    (folder / "revision_hr.md").write_text(
-        render_review_report(result, company, role, link, verify), encoding="utf-8"
-    )
+    report = render_review_report(result, company, role, link, verify)
+    if summary_only:
+        report = report.replace(
+            "\n## Notas del fiscalizador",
+            f"\n> **{SUMMARY_WARNING}**\n\n## Notas del fiscalizador",
+            1,
+        )
+    (folder / "revision_hr.md").write_text(report, encoding="utf-8")
 
     status = STATUS_READY if result.passed else STATUS_MANUAL
     gaps = "; ".join(result.review.gaps_cannot_fix[:3])
     notes = result.review.notes_for_candidate + (f" Gaps: {gaps}." if gaps else "")
+    if summary_only:
+        notes = f"{SUMMARY_WARNING} {notes}"
     sheet.update(
         row["_row"],
         {
