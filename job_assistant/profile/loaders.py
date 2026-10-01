@@ -13,6 +13,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+# Subfolders that describe the candidate. Others (inbox, postings, qa_history, contacts...)
+# hold job postings or operational data and must not be indexed as profile evidence.
+PROFILE_CATEGORIES = frozenset({"cv", "projects", "feedback"})
 
 
 @dataclass(frozen=True)
@@ -48,8 +51,10 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def load_documents(data_dir: Path) -> list[SourceDocument]:
-    """Load every supported file found in subfolders of `data_dir`."""
+def load_documents(
+    data_dir: Path, categories: frozenset[str] | set[str] | None = None
+) -> list[SourceDocument]:
+    """Load supported files in subfolders of `data_dir` (only `categories`, if given)."""
     documents: list[SourceDocument] = []
     if not data_dir.is_dir():
         return documents
@@ -59,6 +64,8 @@ def load_documents(data_dir: Path) -> list[SourceDocument]:
             continue
         relative = path.relative_to(data_dir)
         if len(relative.parts) < 2 or path.name.startswith("~$"):
+            continue
+        if categories is not None and relative.parts[0] not in categories:
             continue
         try:
             text = read_text(path).strip()

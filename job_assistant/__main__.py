@@ -45,11 +45,11 @@ def cmd_check(_: argparse.Namespace) -> int:
 
 
 def cmd_index(_: argparse.Namespace) -> int:
-    from job_assistant.profile.loaders import load_documents
+    from job_assistant.profile.loaders import PROFILE_CATEGORIES, load_documents
     from job_assistant.profile.store import ProfileStore, persistent_client
 
     settings = _settings_or_exit()
-    documents = load_documents(settings.data_dir)
+    documents = load_documents(settings.data_dir, PROFILE_CATEGORIES)
     if not documents:
         print(f"No documents found in subfolders of {settings.data_dir} (see data/README.md).")
         return 1
@@ -219,7 +219,7 @@ def cmd_tailor(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 2
     posting_text = Path(args.posting).read_text(encoding="utf-8")
-    cvs = [d for d in load_documents(settings.data_dir) if d.category == "cv"]
+    cvs = load_documents(settings.data_dir, {"cv"})
     llm = get_chat_model(settings, max_tokens=16000)
 
     outcome = tailor_posting(
@@ -287,7 +287,7 @@ def cmd_answer(args: argparse.Namespace) -> int:
     else:
         language = detect_market(posting_text, company=args.company or "").language
 
-    history = [d for d in load_documents(settings.data_dir) if d.category == "qa_history"]
+    history = load_documents(settings.data_dir, {"qa_history"})
     answers, issues = QAAgent(get_chat_model(settings, max_tokens=16000)).answer(
         questions, profile, history, language, posting_text
     )

@@ -154,3 +154,13 @@ def test_agent_marks_not_found_answer_as_ungrounded(store: ProfileStore, data_di
     store.rebuild(load_documents(data_dir))
     llm = FakeListChatModel(responses=[NOT_FOUND])
     assert ProfileAgent(store, llm).ask("Do I have a PMP?").grounded is False
+
+
+def test_load_documents_category_filter(data_dir: Path) -> None:
+    from job_assistant.profile.loaders import PROFILE_CATEGORIES
+
+    (data_dir / "inbox").mkdir()
+    (data_dir / "inbox" / "posting.txt").write_text("Kubernetes required", encoding="utf-8")
+    sources = {d.source for d in load_documents(data_dir, PROFILE_CATEGORIES)}
+    assert "inbox/posting.txt" not in sources and "cv/cv_en.md" in sources
+    assert [d.source for d in load_documents(data_dir, {"inbox"})] == ["inbox/posting.txt"]
