@@ -524,6 +524,24 @@ def _check_candidates(args: argparse.Namespace, settings: Settings, profile: obj
     return "\n".join(lines) + "\n"
 
 
+def _is_account_error(exc: BaseException) -> bool:
+    """Errors that no retry of the next row can fix: missing credits, invalid key, no access."""
+    from anthropic import AuthenticationError, PermissionDeniedError
+
+    if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+        return True
+    text = str(exc).lower()
+    return "credit balance" in text or "billing" in text or "invalid x-api-key" in text
+
+
+def _short(exc: BaseException) -> str:
+    text = str(exc)
+    for marker in ("'message': '", '"message": "'):
+        if marker in text:
+            return text.split(marker, 1)[1].split("'", 1)[0].split('"', 1)[0]
+    return text[:160]
+
+
 def cmd_postular(args: argparse.Namespace) -> int:
     from job_assistant.agents.hr_reviewer import HRReviewerAgent
     from job_assistant.agents.requirements_agent import RequirementsAgent
@@ -575,6 +593,11 @@ def cmd_postular(args: argparse.Namespace) -> int:
             print(f"  ! {e}", file=sys.stderr)
             return 2
         except Exception as e:
+            if _is_account_error(e):  # no credits / bad key: every next row would fail the same way
+                print(f"  ! Stopped: the Anthropic API refused the request ({_short(e)}).\n"
+                      "    Check your credits/API key, then run `postular` again: pending rows are kept.",
+                      file=sys.stderr)
+                return 2
             logging.getLogger(__name__).exception("Row %s failed", row["_row"])
             postular.table(path).update(row["_row"], {"status": postular.STATUS_ERROR,
                                                       "hr_notes": f"Error: {type(e).__name__}. See console."})
