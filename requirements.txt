@@ -1,0 +1,10 @@
+# Phase 1: core runtime
+anthropic>=0.60
+langchain>=0.3
+langchain-anthropic>=0.3
+langgraph>=0.2
+python-dotenv>=1.0
+openpyxl>=3.1
+
+# Dev
+pytest>=8.0

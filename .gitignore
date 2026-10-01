@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local vector stores (Chroma / FAISS)
+vectorstore/
+chroma/
+*.faiss
+*.index
+
+# Personal data: CVs, tracker, interview feedback, recruiter notes.
+# Only the README describing the expected files is versioned.
+data/*
+!data/README.md
+
+# Generated drafts (pending human approval) and run summaries
+output/*
+!output/.gitkeep
+
+# Excel lock files
+~$*.xlsx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
