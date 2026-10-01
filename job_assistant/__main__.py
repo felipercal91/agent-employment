@@ -441,6 +441,89 @@ def cmd_followup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from job_assistant.discovery.discover import discover, load_config, render_report, save_posting
+    from job_assistant.discovery.sources import archive_inbox_file, fetch_boards, read_inbox
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+
+    settings = _settings_or_exit()
+    try:
+        profile = load_candidate_profile(settings.data_dir)
+    except ProfileNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    config = load_config(settings.data_dir)
+    inbox = read_inbox(settings.data_dir / "inbox")
+    postings, errors = list(inbox), []
+    if config.boards and not args.no_boards:
+        print(f"Reading {len(config.boards)} company job boards (public APIs, read-only)...")
+        fetched, errors = fetch_boards(config.boards)
+        postings += fetched
+    print(f"Postings read: {len(postings)} ({len(inbox)} from inbox)")
+
+    tracker = Tracker(settings.tracker_path, settings.tracker_sheet) if settings.tracker_path.is_file() else None
+    result = discover(postings, profile, config, tracker, errors)
+
+    today = date.today()
+    run_dir = settings.output_dir / "discovery" / today.isoformat()
+    saved = {
+        (c.posting.url or c.posting.title): save_posting(c.posting, run_dir / "postings")
+        for c in result.candidates
+    }
+    report = render_report(result, today, saved)
+
+    if args.check and result.candidates:
+        report += _check_candidates(args, settings, profile, tracker, result.candidates[: args.top], saved)
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "report.md").write_text(report, encoding="utf-8")
+    for posting in inbox:
+        if posting.inbox_file is not None:
+            archive_inbox_file(posting.inbox_file)
+
+    print(f"New relevant: {len(result.candidates)} | already tracked: {len(result.already_tracked)} "
+          f"| filtered: {result.filtered_out} | below min fit: {len(result.below_min_fit)}")
+    for c in result.candidates[:10]:
+        print(f"  {c.fit.score:3d}%  {c.posting.title} @ {c.posting.company} ({c.posting.location})")
+    for e in result.errors:
+        print(f"  ! {e}")
+    print(f"\nReport: {run_dir / 'report.md'}")
+    return 0
+
+
+def _check_candidates(args: argparse.Namespace, settings: Settings, profile: object,
+                      tracker: Tracker | None, candidates: list, saved: dict) -> str:
+    from job_assistant.agents.requirements_agent import RequirementsAgent
+    from job_assistant.llm import get_chat_model
+    from job_assistant.pipeline import add_to_tracker, evaluate_posting
+    from job_assistant.profile.store import ProfileStore, persistent_client
+
+    agent = RequirementsAgent(get_chat_model(settings))
+    store = ProfileStore(persistent_client(settings.vectorstore_dir))
+    lines = ["", "## Requirements check (top candidates)", ""]
+    print(f"\nRequirements check on top {len(candidates)}:")
+    for c in candidates:
+        p = c.posting
+        text = f"{p.title}\nCompany: {p.company}\nLocation: {p.location}\n\n{p.text}"
+        evaluation = evaluate_posting(text, profile, agent, store)  # type: ignore[arg-type]
+        decision = evaluation.decision.upper()
+        line = f"- **{decision}** · {p.title} @ {p.company}"
+        if evaluation.decision == "stop":
+            line += " · " + "; ".join(r.requirement for r in evaluation.requirements.hard_mismatches)
+        elif args.add and tracker is not None:
+            try:
+                row = add_to_tracker(tracker, evaluation, settings.tracker_initial_status,
+                                     p.company or None, p.url)
+                line += f" · added to tracker ('{row.sheet}' row {row.row})"
+            except TrackerError as e:
+                line += f" · not added: {e}"
+        print(f"  {line.lstrip('- ').replace('**', '')}")
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -502,6 +585,13 @@ def main(argv: list[str] | None = None) -> int:
     followup.add_argument("--to", help="Recipient or company (sent/discard)")
     followup.add_argument("--lang", choices=["en", "fr"])
     followup.set_defaults(func=cmd_followup)
+
+    discover = sub.add_parser("discover", help="Find new postings (inbox + company job boards)")
+    discover.add_argument("--no-boards", action="store_true", help="Only process data/inbox/")
+    discover.add_argument("--check", action="store_true", help="Run the requirements check on the top N")
+    discover.add_argument("--top", type=int, default=5)
+    discover.add_argument("--add", action="store_true", help="With --check: add passing postings to the tracker")
+    discover.set_defaults(func=cmd_discover)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])

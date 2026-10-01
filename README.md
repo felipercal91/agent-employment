@@ -94,6 +94,20 @@ python -m job_assistant followup discard --to "Ana Gómez"
 
 Memoria: no se genera un segundo mensaje al mismo reclutador o empresa si hay un borrador pendiente o uno enviado hace menos de `FOLLOWUP_COOLDOWN_DAYS` días (y en ese caso ni siquiera se llama a Claude).
 
+## Discovery (Fase 8)
+
+Nunca toca LinkedIn ni Indeed. Dos fuentes:
+
+1. **Bandeja manual** `data/inbox/`: guarda ahí el texto de vacantes que veas (opcionalmente con líneas `Company:`, `Title:`, `Location:`, `URL:` arriba). Se procesan y se mueven a `data/inbox/processed/`.
+2. **Páginas de empleo de empresas** vía las APIs públicas de solo lectura de Greenhouse, Lever y Ashby (una consulta por empresa). Lista en `data/discovery.toml` (ver `examples/discovery.example.toml`).
+
+```powershell
+python -m job_assistant discover                          # reporte en output/discovery/<fecha>/report.md
+python -m job_assistant discover --check --top 5 --add    # + requirements check y alta en el tracker de las que pasan
+```
+
+Filtra por título, ubicación y que mencione Java/Spring/Kotlin; descarta lo que ya está en el tracker; ordena por fit. Cada vacante nueva se guarda como .txt listo para `tailor`.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
@@ -118,6 +132,6 @@ tests/
 5. ✅ Tailoring Agent + lógica Quebec (pendiente: probar con tus CVs reales)
 6. ✅ Application Q&A Agent (pendiente: completar [situation] y data/qa_history/)
 7. ✅ Recruiter CRM + Follow-up Agent (pendiente: cargar tus reclutadores reales)
-8. Discovery Agent
+8. ✅ Discovery Agent (pendiente: tu lista de empresas en data/discovery.toml)
 9. Interview Prep Agent
 10. Weekly Summary + integración con aprobación humana

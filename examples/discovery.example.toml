@@ -1,0 +1,42 @@
+# Copy to data/discovery.toml and edit.
+#
+# Company job boards read through the PUBLIC, read-only APIs of the ATS each company uses.
+# Find a company's ATS from its careers page URL:
+#   job-boards.greenhouse.io/<token>  -> ats = "greenhouse"
+#   jobs.lever.co/<token>             -> ats = "lever"
+#   jobs.ashbyhq.com/<token>          -> ats = "ashby"
+# LinkedIn / Indeed are never contacted: save interesting postings from them into data/inbox/.
+
+[[boards]]
+company = "Wealthsimple"
+ats = "ashby"
+token = "wealthsimple"
+
+[[boards]]
+company = "Cohere"
+ats = "ashby"
+token = "cohere"
+
+[[boards]]
+company = "KOHO"
+ats = "ashby"
+token = "koho"
+
+[[boards]]
+company = "Geotab"
+ats = "greenhouse"
+token = "geotab"
+
+[[boards]]
+company = "Faire"
+ats = "greenhouse"
+token = "faire"
+
+[filters]
+# Regular expressions, case-insensitive. Omit a key to keep the defaults.
+title_include = ['\bjava\b', 'back[- ]?end', 'd[ée]veloppeur', 'spring', 'software (developer|engineer)']
+title_exclude = ['\bjunior\b', '\bintern', '\bstage\b', '\bco-?op\b', 'front[- ]?end', '\bmanager\b', '\bdirector\b']
+locations = ['toronto', 'montr[ée]al', '\bgta\b', 'remote.*canada', 'canada.*remote', '\bontario\b', '\bqu[ée]bec\b']
+min_fit = 50
+# Skip board postings that mention none of these (e.g. Python-only roles).
+require_any_keyword = ["Java", "Spring Boot", "Spring", "Kotlin"]
