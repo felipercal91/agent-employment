@@ -18,6 +18,17 @@ python -m pytest                 # tests locales, no llaman a la API
 python -m job_assistant check    # verifica .env y hace una llamada mínima a Claude
 ```
 
+## Profile / RAG (Fase 2)
+
+```powershell
+python -m job_assistant index                                   # indexa data/ (re-ejecutar al cambiar documentos)
+python -m job_assistant ask "Have I used Kafka?"                # pregunta sobre tu perfil
+python -m job_assistant ask "What did interviewers criticize?" --category feedback
+```
+
+Las respuestas se basan solo en tus documentos y citan las fuentes; si algo no está, responde `Not found in your documents.`
+La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
+
 ## Estructura
 
 ```
@@ -34,7 +45,7 @@ tests/
 ## Roadmap
 
 1. ✅ Setup, estructura, .env, conexión a Claude
-2. Profile / RAG Agent
+2. ✅ Profile / RAG Agent (pendiente: indexar tus documentos reales)
 3. Scoring de fit + Requirements Check
 4. Tracker Agent (Excel)
 5. Tailoring Agent + lógica Quebec
