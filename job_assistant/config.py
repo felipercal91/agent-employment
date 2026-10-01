@@ -28,6 +28,10 @@ class Settings:
     # Sheet that receives new rows; None = first sheet with recognizable headers.
     tracker_sheet: str | None = None
     tracker_initial_status: str = "Pending review"
+    # Contacts/applications silent for longer than this are flagged for follow-up.
+    followup_stale_days: int = 7
+    # No new follow-up to the same recipient/company within this many days of the last one.
+    followup_cooldown_days: int = 7
     # Required only for API keys not scoped to a workspace.
     workspace_id: str | None = None
 
@@ -61,5 +65,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         tracker_path=_resolve_dir(tracker_env, "") if tracker_env else data_dir / "tracker.xlsx",
         tracker_sheet=os.getenv("TRACKER_SHEET", "").strip() or None,
         tracker_initial_status=os.getenv("TRACKER_INITIAL_STATUS", "").strip() or "Pending review",
+        followup_stale_days=int(os.getenv("FOLLOWUP_STALE_DAYS", "").strip() or 7),
+        followup_cooldown_days=int(os.getenv("FOLLOWUP_COOLDOWN_DAYS", "").strip() or 7),
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from job_assistant.agents.requirements_agent import RequirementsAgent, RequirementsAssessment
@@ -18,7 +19,10 @@ from job_assistant.tailoring.guardrails import (
     protected_title_mentions,
     ungrounded_keywords,
 )
-from job_assistant.tailoring.market import Language, Market, detect_market
+from job_assistant.tailoring.market import Language, Market, detect_market, is_french_text
+from job_assistant.agents.followup_agent import FollowUpAgent, FollowUpTarget
+from job_assistant.tracker.contacts import Contact, FollowUpEntry, FollowUpLog, norm
+from job_assistant.tracker.workbook import as_date
 from job_assistant.tracker.excel import NewEntry, Tracker, TrackerError, TrackerRow
 
 
@@ -183,6 +187,112 @@ def tailor_posting(
         },
     )
     return TailoringOutcome(**{**outcome.__dict__, "draft_dir": write_draft(output_dir, draft)})
+
+
+# ---- follow-ups -------------------------------------------------------------------
+
+FOLLOWUP_APPLICATION_STATUSES = {"aplicado", "en proceso", "applied", "in process", "in progress"}
+
+
+class FollowUpBlocked(Exception):
+    def __init__(self, entries: list[FollowUpEntry]) -> None:
+        self.entries = entries
+        super().__init__("A recent or pending follow-up already exists.")
+
+
+def due_applications(
+    tracker: Tracker, days: int, today: date | None = None
+) -> list[tuple[TrackerRow, int]]:
+    """Applications still waiting (Aplicado/En proceso) for more than `days` days."""
+    today = today or date.today()
+    due = []
+    for row in tracker.rows():
+        applied = as_date(row.date)
+        if norm(row.status) in FOLLOWUP_APPLICATION_STATUSES and applied:
+            waited = (today - applied).days
+            if waited > days:
+                due.append((row, waited))
+    return sorted(due, key=lambda pair: -pair[1])
+
+
+def target_from_contact(contact: Contact, today: date | None = None) -> FollowUpTarget:
+    return FollowUpTarget(
+        kind="recruiter",
+        recipient=contact.name,
+        company=contact.company,
+        role=contact.role,
+        days_since=contact.days_since_contact(today or date.today()),
+        context="\n".join(
+            line for line in [
+                f"Staffing agency: {contact.agency}" if contact.agency else "",
+                f"End client: {contact.end_client}" if contact.end_client else "",
+                f"Conversation status: {contact.status}" if contact.status else "",
+                f"Pending next action: {contact.next_action}" if contact.next_action else "",
+                f"Notes: {contact.notes}" if contact.notes else "",
+            ] if line
+        ),
+    )
+
+
+def target_from_application(row: TrackerRow, today: date | None = None) -> FollowUpTarget:
+    applied = as_date(row.date)
+    return FollowUpTarget(
+        kind="application",
+        recipient="",
+        company=row.company,
+        role=row.role,
+        days_since=((today or date.today()) - applied).days if applied else None,
+        context="\n".join(
+            line for line in [
+                f"Application status: {row.status}",
+                f"Applied on: {applied.isoformat()}" if applied else "",
+                f"Location: {row.location}" if row.location else "",
+                f"Notes: {row.notes}" if row.notes else "",
+            ] if line
+        ),
+    )
+
+
+def followup_language(target: FollowUpTarget, location: str = "") -> Language:
+    if is_french_text(target.context):
+        return "fr"
+    return detect_market("", location, target.company).language
+
+
+def draft_followup(
+    target: FollowUpTarget,
+    profile: CandidateProfile,
+    agent: FollowUpAgent,
+    log: FollowUpLog,
+    output_dir: Path,
+    cooldown_days: int,
+    language: Language,
+) -> Path:
+    """Draft a follow-up unless one is pending or was sent within the cooldown."""
+    recent = log.recent(target.recipient, target.company, cooldown_days)
+    if recent:
+        raise FollowUpBlocked(recent)
+
+    message = agent.draft(target, profile, language)
+    who = target.recipient or target.company
+    folder = write_draft(
+        output_dir,
+        Draft(
+            company=target.company or who,
+            role=f"followup-{target.recipient or target.role}",
+            kind="followup",
+            files={
+                "message.md": (
+                    f"<!-- PENDING YOUR APPROVAL: review, then send it yourself and run "
+                    f"`followup sent --to \"{who}\"` -->\n\n"
+                    f"**Subject:** {message.subject}\n\n{message.body}\n"
+                )
+            },
+            meta={"recipient": target.recipient, "language": language, "kind_detail": target.kind},
+        ),
+    )
+    log.record(target.recipient, target.company, target.kind, str(folder / "message.md"))
+    return folder
 
 
 def tracker_notes(evaluation: PostingEvaluation) -> str:

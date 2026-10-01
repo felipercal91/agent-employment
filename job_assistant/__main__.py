@@ -311,6 +311,136 @@ def cmd_answer(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_contacts(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from job_assistant.tracker.contacts import ContactBook
+
+    settings = _settings_or_exit()
+    book = ContactBook(settings.tracker_path)
+    try:
+        if args.action == "add":
+            if not args.name:
+                print("--name is required.", file=sys.stderr)
+                return 2
+            book.add(args.name, agency=args.agency or "", end_client=args.client or "",
+                     role=args.role or "", channel=args.channel or "",
+                     status=args.status or "Activo", next_action=args.next or "",
+                     notes=args.note or "")
+            print(f"Added contact {args.name}.")
+            return 0
+        if args.action == "touch":
+            c = book.touch(args.name, status=args.status, next_action=args.next, note=args.note)
+            print(f"Updated {c.name}: last contact {c.last_contact}, status {c.status}, next: {c.next_action or '-'}")
+            return 0
+    except TrackerError as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    today = date.today()
+    stale = {c.row for c, _ in book.stale(settings.followup_stale_days, today)}
+    contacts = book.all()
+    if not contacts:
+        print("No contacts yet. Add one with: contacts add --name ...")
+    for c in contacts:
+        since = c.days_since_contact(today)
+        mark = "STALE " if c.row in stale else "      "
+        print(f"{mark}{c.name} | {c.agency or '-'} -> {c.end_client or '-'} | {c.role or '-'} | "
+              f"{c.status or '-'} | {since if since is not None else '?'}d | next: {c.next_action or '-'}")
+    return 0
+
+
+def cmd_followup(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from job_assistant.agents.followup_agent import FollowUpAgent
+    from job_assistant.llm import get_chat_model
+    from job_assistant.pipeline import (
+        FollowUpBlocked,
+        draft_followup,
+        due_applications,
+        followup_language,
+        target_from_application,
+        target_from_contact,
+    )
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+    from job_assistant.tracker.contacts import (
+        FOLLOWUP_DISCARDED,
+        FOLLOWUP_SENT,
+        ContactBook,
+        FollowUpLog,
+    )
+
+    settings = _settings_or_exit()
+    book, log = ContactBook(settings.tracker_path), FollowUpLog(settings.tracker_path)
+    days = settings.followup_stale_days
+    today = date.today()
+
+    if args.action == "due":
+        stale = book.stale(days, today)
+        apps = due_applications(Tracker(settings.tracker_path), days, today) if settings.tracker_path.is_file() else []
+        print(f"Recruiters with no contact for more than {days} days:")
+        for c, since in stale:
+            blocked = " (follow-up pending/recent)" if log.recent(c.name, c.company, settings.followup_cooldown_days) else ""
+            print(f"  - {c.name} ({c.company or '-'}): {since if since is not None else '?'}d, next: {c.next_action or '-'}{blocked}")
+        if not stale:
+            print("  none")
+        print(f"Applications waiting for more than {days} days:")
+        for row, waited in apps:
+            blocked = " (follow-up pending/recent)" if log.recent("", row.company, settings.followup_cooldown_days) else ""
+            print(f"  - {row.company} | {row.role} | {row.status} | {waited}d{blocked}")
+        if not apps:
+            print("  none")
+        return 0
+
+    try:
+        if args.action in {"sent", "discard"}:
+            if not args.to:
+                print("--to is required.", file=sys.stderr)
+                return 2
+            status = FOLLOWUP_SENT if args.action == "sent" else FOLLOWUP_DISCARDED
+            entry = log.set_status(args.to, status)
+            print(f"Marked follow-up to {entry.recipient or entry.company} as {status}.")
+            if status == FOLLOWUP_SENT and entry.recipient:
+                book.touch(entry.recipient, note="Follow-up sent")
+                print(f"Contact {entry.recipient}: last contact set to today.")
+            return 0
+
+        # action == "draft"
+        if bool(args.contact) == bool(args.company):
+            print("Use exactly one of --contact or --company.", file=sys.stderr)
+            return 2
+        if args.contact:
+            target, location = target_from_contact(book.find(args.contact), today), ""
+        else:
+            matches = [r for r in Tracker(settings.tracker_path).rows()
+                       if r.company.lower() == args.company.lower()]
+            if not matches:
+                print(f"No application for '{args.company}' in the tracker.", file=sys.stderr)
+                return 2
+            target, location = target_from_application(matches[-1], today), matches[-1].location
+        profile = load_candidate_profile(settings.data_dir)
+    except (TrackerError, ProfileNotFoundError) as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    language = args.lang or followup_language(target, location)
+    try:
+        folder = draft_followup(
+            target, profile, FollowUpAgent(get_chat_model(settings)), log,
+            settings.output_dir, settings.followup_cooldown_days, language,
+        )
+    except FollowUpBlocked as blocked:
+        print("NOT DRAFTED: a follow-up for this recipient/company is pending or recent:")
+        for e in blocked.entries:
+            print(f"  - {e.date} {e.status}: {e.recipient or e.company} ({e.file})")
+        print("Send it and run `followup sent --to ...`, or `followup discard --to ...`.")
+        return 4
+    print((folder / "message.md").read_text(encoding="utf-8"))
+    print(f"Draft PENDING APPROVAL in: {folder} (logged in sheet 'Seguimientos' as Borrador)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -352,6 +482,27 @@ def main(argv: list[str] | None = None) -> int:
     answer.add_argument("--lang", choices=["en", "fr"])
     answer.set_defaults(func=cmd_answer)
 
+    contacts = sub.add_parser("contacts", help="Recruiter CRM (sheet 'Reclutadores')")
+    contacts.add_argument("action", choices=["list", "add", "touch"])
+    contacts.add_argument("name", nargs="?", help="Contact name (for touch)")
+    contacts.add_argument("--name", dest="name_opt", help="Contact name (for add)")
+    contacts.add_argument("--agency")
+    contacts.add_argument("--client", help="End client")
+    contacts.add_argument("--role")
+    contacts.add_argument("--channel", help="Email or LinkedIn URL")
+    contacts.add_argument("--status")
+    contacts.add_argument("--next", help="Next action")
+    contacts.add_argument("--note")
+    contacts.set_defaults(func=cmd_contacts)
+
+    followup = sub.add_parser("followup", help="Follow-up drafts (never sent automatically)")
+    followup.add_argument("action", choices=["due", "draft", "sent", "discard"])
+    followup.add_argument("--contact", help="Recruiter name (draft)")
+    followup.add_argument("--company", help="Company of a tracked application (draft)")
+    followup.add_argument("--to", help="Recipient or company (sent/discard)")
+    followup.add_argument("--lang", choices=["en", "fr"])
+    followup.set_defaults(func=cmd_followup)
+
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])
     tracker.add_argument("--company")
@@ -360,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
     tracker.set_defaults(func=cmd_tracker)
 
     args = parser.parse_args(argv)
+    if args.command == "contacts":
+        args.name = args.name_opt or args.name
     return args.func(args)
 
 

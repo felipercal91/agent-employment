@@ -66,6 +66,34 @@ python -m job_assistant tailor posting.txt --company "Desjardins" --lang fr
 5. Guardrails deterministas: corrige el título en francés y marca cualquier tecnología del borrador que no aparezca en tus fuentes.
 6. Escribe en `output/pending/<fecha>_<empresa>_<puesto>/`: `cv.md` (para el empleador) y `review.md` (evidencia por bullet, gaps, flags). Estado `pending_approval`: nada se envía.
 
+## Respuestas a formularios (Fase 6)
+
+Requiere la sección `[situation]` en `data/profile.toml` (cómo terminó tu último empleo, salario, disponibilidad...). Usa como ejemplo de tono tus respuestas previas en `data/qa_history/`.
+
+```powershell
+python -m job_assistant answer examples/forms/formulaire_quebec.txt --company "Desjardins" --role "Développeur Java"
+```
+
+- Detecta premisas falsas (p. ej. "suite à votre démission" cuando fue un layoff, o "your current employer" sin empleo actual) con reglas fijas **y** con Claude; las marca en vez de responder tal cual.
+- Si falta un dato (salario, años exactos), deja un placeholder y lo marca como "Needs your input". Consentimientos y declaraciones legales siempre se marcan como "Your decision".
+- Idioma: francés si el formulario está en francés o el posting es de Quebec. Salida en `output/pending/.../form_answers.md`.
+
+## CRM de reclutadores + Follow-ups (Fase 7)
+
+Hojas `Reclutadores` y `Seguimientos` del mismo Excel.
+
+```powershell
+python -m job_assistant contacts add --name "Ana Gómez" --agency TEKsystems --client Citibank --role "Senior Java Dev"
+python -m job_assistant contacts touch "Ana Gómez" --status "Esperando respuesta" --next "Esperar feedback"
+python -m job_assistant contacts list                 # STALE = más de FOLLOWUP_STALE_DAYS sin contacto
+python -m job_assistant followup due                  # reclutadores y aplicaciones que necesitan seguimiento
+python -m job_assistant followup draft --contact "Ana"   # o --company "Shopify" (aplicación del tracker)
+python -m job_assistant followup sent --to "Ana Gómez"   # TÚ lo enviaste: se registra y actualiza el contacto
+python -m job_assistant followup discard --to "Ana Gómez"
+```
+
+Memoria: no se genera un segundo mensaje al mismo reclutador o empresa si hay un borrador pendiente o uno enviado hace menos de `FOLLOWUP_COOLDOWN_DAYS` días (y en ese caso ni siquiera se llama a Claude).
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
@@ -88,8 +116,8 @@ tests/
 3. ✅ Scoring de fit + Requirements Check (pendiente: completar data/profile.toml)
 4. ✅ Tracker Agent (Excel) (pendiente: probar con copia de tu tracker real)
 5. ✅ Tailoring Agent + lógica Quebec (pendiente: probar con tus CVs reales)
-6. Application Q&A Agent
-7. Recruiter CRM + Follow-up Agent
+6. ✅ Application Q&A Agent (pendiente: completar [situation] y data/qa_history/)
+7. ✅ Recruiter CRM + Follow-up Agent (pendiente: cargar tus reclutadores reales)
 8. Discovery Agent
 9. Interview Prep Agent
 10. Weekly Summary + integración con aprobación humana

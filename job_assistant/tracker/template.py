@@ -20,6 +20,7 @@ APPLICATION_STATUSES = [
     "Descartado",
 ]
 CONTACT_STATUSES = ["Activo", "Esperando respuesta", "En pausa", "Cerrado"]
+FOLLOWUP_STATUSES = ["Borrador", "Enviado", "Descartado"]
 
 APPLICATION_COLUMNS = [
     ("Empresa", 22), ("Puesto", 32), ("Cliente final", 18), ("Ubicación", 18), ("Link", 40),
@@ -29,6 +30,11 @@ CONTACT_COLUMNS = [
     ("Nombre", 22), ("Empresa staffing", 22), ("Cliente final", 18), ("Rol", 30),
     ("Email / LinkedIn", 30), ("Último contacto", 14), ("Estado", 20), ("Próxima acción", 40),
     ("Notas", 50),
+]
+
+FOLLOWUP_COLUMNS = [
+    ("Fecha", 12), ("Destinatario", 24), ("Empresa", 22), ("Tipo", 14), ("Estado", 14),
+    ("Archivo", 60), ("Notas", 40),
 ]
 
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -80,6 +86,8 @@ def create_tracker_template(path: Path) -> Path:
     _setup_sheet(apps, APPLICATION_COLUMNS, APPLICATION_STATUSES)
     contacts = wb.create_sheet("Reclutadores")
     _setup_sheet(contacts, CONTACT_COLUMNS, CONTACT_STATUSES)
+    followups = wb.create_sheet("Seguimientos")
+    _setup_sheet(followups, FOLLOWUP_COLUMNS, FOLLOWUP_STATUSES)
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return path
