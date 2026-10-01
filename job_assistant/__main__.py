@@ -201,6 +201,58 @@ def cmd_tracker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tailor(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from job_assistant.agents.requirements_agent import RequirementsAgent
+    from job_assistant.agents.tailoring_agent import TailoringAgent
+    from job_assistant.llm import get_chat_model
+    from job_assistant.pipeline import tailor_posting
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+    from job_assistant.profile.loaders import load_documents
+    from job_assistant.profile.store import ProfileStore, persistent_client
+
+    settings = _settings_or_exit()
+    try:
+        profile = load_candidate_profile(settings.data_dir)
+    except ProfileNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    posting_text = Path(args.posting).read_text(encoding="utf-8")
+    cvs = [d for d in load_documents(settings.data_dir) if d.category == "cv"]
+    llm = get_chat_model(settings, max_tokens=16000)
+
+    outcome = tailor_posting(
+        posting_text,
+        profile,
+        RequirementsAgent(llm),
+        TailoringAgent(llm),
+        cvs,
+        settings.output_dir,
+        store=ProfileStore(persistent_client(settings.vectorstore_dir)),
+        company=args.company,
+        language=args.lang,
+    )
+    req = outcome.evaluation.requirements
+    if outcome.stopped:
+        print(f"STOP: {req.role_title} has hard mismatches; no CV prepared:")
+        for r in req.hard_mismatches:
+            print(f"  - {r.requirement}: {r.evidence}")
+        return 3
+
+    assert outcome.market is not None and outcome.draft_dir is not None
+    print(f"Tailored CV for {req.role_title} ({outcome.market.language}: {outcome.market.reason})")
+    print(f"Base CV: {outcome.base_cv or '(none)'} | Fit: {outcome.evaluation.fit.score}%")
+    if outcome.flags:
+        print("Flags to review:")
+        for flag in outcome.flags:
+            print(f"  ! {flag}")
+    print(f"\nDraft PENDING APPROVAL in: {outcome.draft_dir}")
+    print("  cv.md      -> tailored sections")
+    print("  review.md  -> evidence per bullet, gaps not claimed, flags")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -227,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("--link", help="Posting URL (used for duplicate check / tracker row)")
     evaluate.add_argument("--add", action="store_true", help="Add to the tracker if it passes")
     evaluate.set_defaults(func=cmd_evaluate)
+
+    tailor = sub.add_parser("tailor", help="Evaluate a posting and draft a tailored CV (pending approval)")
+    tailor.add_argument("posting", help="Path to a text file with the job posting")
+    tailor.add_argument("--company", help="Company name (otherwise taken from the posting)")
+    tailor.add_argument("--lang", choices=["en", "fr"], help="Force the CV language")
+    tailor.set_defaults(func=cmd_tailor)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])

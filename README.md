@@ -52,6 +52,20 @@ python -m job_assistant evaluate posting.txt --company "Acme" --link "https://..
 - Duplicado = mismo link (ignorando parámetros de tracking) o misma empresa + mismo puesto. Si es duplicado, no se llama a Claude.
 - `--add` solo agrega si pasó el Requirements Check. Antes de escribir crea un backup en `data/backups/` y se niega si el archivo está abierto en Excel.
 
+## Tailoring + Quebec (Fase 5)
+
+```powershell
+python -m job_assistant tailor posting.txt --company "Acme"            # idioma automático
+python -m job_assistant tailor posting.txt --company "Desjardins" --lang fr
+```
+
+1. Evalúa el posting (fit + requirements). Si hay mismatch duro, se detiene sin generar nada.
+2. Detecta Quebec por ubicación, empresa o idioma del posting → CV en francés, título "Développeur" (nunca "Ingénieur").
+3. Elige el CV base de `data/cv/` por idioma y variante Kafka (por nombre de archivo: `fr`/`en`, `kafka`/`sin_kafka`).
+4. Claude reescribe headline, resumen, bullets y skills **solo con lo que dicen tus documentos**; lo que falta va a "gaps", no al CV.
+5. Guardrails deterministas: corrige el título en francés y marca cualquier tecnología del borrador que no aparezca en tus fuentes.
+6. Escribe en `output/pending/<fecha>_<empresa>_<puesto>/`: `cv.md` (para el empleador) y `review.md` (evidencia por bullet, gaps, flags). Estado `pending_approval`: nada se envía.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura
@@ -73,7 +87,7 @@ tests/
 2. ✅ Profile / RAG Agent (pendiente: indexar tus documentos reales)
 3. ✅ Scoring de fit + Requirements Check (pendiente: completar data/profile.toml)
 4. ✅ Tracker Agent (Excel) (pendiente: probar con copia de tu tracker real)
-5. Tailoring Agent + lógica Quebec
+5. ✅ Tailoring Agent + lógica Quebec (pendiente: probar con tus CVs reales)
 6. Application Q&A Agent
 7. Recruiter CRM + Follow-up Agent
 8. Discovery Agent

@@ -1,0 +1,14 @@
+Développeur Java senior - Montréal, QC (hybride)
+
+Nous sommes une institution financière québécoise et nous cherchons un développeur Java senior pour notre équipe de paiements.
+
+Exigences :
+- 8 ans et plus d'expérience en développement backend avec Java
+- Maîtrise de Spring Boot et des architectures microservices
+- Expérience avec Apache Kafka
+- Connaissance de PostgreSQL et des API REST
+- Français et anglais fonctionnels
+
+Atouts :
+- Expérience avec Kubernetes et AWS
+- Expérience dans le secteur bancaire
