@@ -23,6 +23,8 @@ class Settings:
     model: str
     data_dir: Path
     output_dir: Path
+    # Required only for API keys not scoped to a workspace.
+    workspace_id: str | None = None
 
 
 def _resolve_dir(value: str | None, default: str) -> Path:
@@ -48,4 +50,5 @@ def load_settings(env_file: Path | None = None) -> Settings:
         model=os.getenv("CLAUDE_MODEL", "").strip() or DEFAULT_MODEL,
         data_dir=_resolve_dir(os.getenv("DATA_DIR"), "data"),
         output_dir=_resolve_dir(os.getenv("OUTPUT_DIR"), "output"),
+        workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
     )

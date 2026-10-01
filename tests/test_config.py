@@ -4,7 +4,7 @@ import pytest
 
 from job_assistant.config import DEFAULT_MODEL, PROJECT_ROOT, ConfigError, load_settings
 
-ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_MODEL", "DATA_DIR", "OUTPUT_DIR")
+ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_WORKSPACE_ID", "CLAUDE_MODEL", "DATA_DIR", "OUTPUT_DIR")
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +41,19 @@ def test_overrides(tmp_path: Path) -> None:
     )
     assert settings.model == "claude-sonnet-5-5"
     assert settings.data_dir == custom
+
+
+def test_workspace_id_optional(tmp_path: Path) -> None:
+    assert load_settings(write_env(tmp_path, "ANTHROPIC_API_KEY=k\n")).workspace_id is None
+    settings = load_settings(write_env(tmp_path, "ANTHROPIC_API_KEY=k\nANTHROPIC_WORKSPACE_ID=wrkspc_1\n"))
+    assert settings.workspace_id == "wrkspc_1"
+
+
+def test_workspace_header_sent(tmp_path: Path) -> None:
+    from job_assistant.llm import get_chat_model
+
+    settings = load_settings(write_env(tmp_path, "ANTHROPIC_API_KEY=k\nANTHROPIC_WORKSPACE_ID=wrkspc_1\n"))
+    assert get_chat_model(settings).default_headers == {"anthropic-workspace-id": "wrkspc_1"}
 
 
 def test_key_not_in_repr(tmp_path: Path) -> None:

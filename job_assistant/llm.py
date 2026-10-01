@@ -9,10 +9,14 @@ from job_assistant.config import Settings
 
 
 def get_chat_model(settings: Settings, max_tokens: int = 8192) -> ChatAnthropic:
+    headers = (
+        {"anthropic-workspace-id": settings.workspace_id} if settings.workspace_id else None
+    )
     return ChatAnthropic(
         model=settings.model,
         api_key=settings.anthropic_api_key,
         max_tokens=max_tokens,
+        default_headers=headers,
     )
 
 
