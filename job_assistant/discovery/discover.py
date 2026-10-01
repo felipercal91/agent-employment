@@ -17,10 +17,18 @@ from job_assistant.tracker.excel import Tracker, normalize_company, normalize_li
 CONFIG_FILENAME = "discovery.toml"
 
 DEFAULT_TITLE_INCLUDE = [r"\bjava\b", r"back[- ]?end", r"d[ée]veloppeur", r"spring", r"software (developer|engineer)"]
-DEFAULT_TITLE_EXCLUDE = [r"\bjunior\b", r"\bintern", r"\bstage\b", r"\bco-?op\b", r"front[- ]?end",
+DEFAULT_TITLE_EXCLUDE = [r"\bjunior\b", r"\bintern", r"\bstage\b", r"\bstagiaire\b", r"\bco-?op\b",
+                         r"new grad", r"\bmobile\b", r"front[- ]?end",
                          r"\bmanager\b", r"\bdirector\b", r"\bsales\b", r"\bandroid\b", r"\bios\b"]
-DEFAULT_LOCATIONS = [r"toronto", r"montr[ée]al", r"\bgta\b", r"remote.*canada", r"canada.*remote",
-                     r"\bontario\b", r"\bqu[ée]bec\b", r"mississauga", r"\blaval\b"]
+# Toronto (+GTA), London ON, Montréal (+Laval), Québec City, and remote within Canada.
+DEFAULT_LOCATIONS = [
+    r"toronto", r"\bgta\b", r"mississauga",
+    r"london,?\s*(on|ontario)\b",                      # not London, UK
+    r"montr[ée]al", r"\blaval\b",
+    r"qu[ée]bec\s*city", r"ville de qu[ée]bec", r"qu[ée]bec,\s*qc",
+    r"(^|[;,/(]|\bou\b|\bor\b)\s*qu[ée]bec\s*($|[;,/)(])",  # "Québec" as a city name
+    r"remote.*canada", r"canada.*remote",
+]
 # A board posting must mention at least one of these (canonical keywords from scoring.fit).
 DEFAULT_REQUIRE_ANY = ["Java", "Spring Boot", "Spring", "Kotlin"]
 

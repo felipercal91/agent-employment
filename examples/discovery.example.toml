@@ -35,8 +35,8 @@ token = "faire"
 [filters]
 # Regular expressions, case-insensitive. Omit a key to keep the defaults.
 title_include = ['\bjava\b', 'back[- ]?end', 'd[ée]veloppeur', 'spring', 'software (developer|engineer)']
-title_exclude = ['\bjunior\b', '\bintern', '\bstage\b', '\bco-?op\b', 'front[- ]?end', '\bmanager\b', '\bdirector\b']
-locations = ['toronto', 'montr[ée]al', '\bgta\b', 'remote.*canada', 'canada.*remote', '\bontario\b', '\bqu[ée]bec\b']
+title_exclude = ['\bjunior\b', '\bintern', '\bstage\b', '\bco-?op\b', 'new grad', '\bmobile\b', 'front[- ]?end', '\bmanager\b', '\bdirector\b']
+# locations: omit to use the defaults (Toronto/GTA, London ON, Montreal/Laval, Quebec City, remote Canada)
 min_fit = 50
 # Skip board postings that mention none of these (e.g. Python-only roles).
 require_any_keyword = ["Java", "Spring Boot", "Spring", "Kotlin"]
