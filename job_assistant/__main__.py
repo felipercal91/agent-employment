@@ -166,6 +166,16 @@ def _print_rows(title: str, rows: list[TrackerRow]) -> None:
 
 def cmd_tracker(args: argparse.Namespace) -> int:
     settings = _settings_or_exit()
+    if args.action == "init":
+        from job_assistant.tracker.template import create_tracker_template
+
+        try:
+            path = create_tracker_template(settings.tracker_path)
+        except FileExistsError as e:
+            print(e, file=sys.stderr)
+            return 2
+        print(f"Created {path} (sheets: Aplicaciones, Reclutadores).")
+        return 0
     try:
         tracker = Tracker(settings.tracker_path, settings.tracker_sheet)
     except TrackerError as e:
@@ -219,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.set_defaults(func=cmd_evaluate)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
-    tracker.add_argument("action", choices=["list", "check"])
+    tracker.add_argument("action", choices=["init", "list", "check"])
     tracker.add_argument("--company")
     tracker.add_argument("--role")
     tracker.add_argument("--link")

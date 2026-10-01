@@ -65,5 +65,6 @@ def add_to_tracker(
             fit=evaluation.fit.score,
             status=status,
             notes=tracker_notes(evaluation),
+            location=evaluation.requirements.location,
         )
     )

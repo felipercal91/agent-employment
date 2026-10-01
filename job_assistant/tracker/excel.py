@@ -21,10 +21,13 @@ from urllib.parse import urlsplit
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-FIELDS = ("company", "role", "link", "fit", "status", "date", "notes")
+FIELDS = ("company", "role", "end_client", "location", "link", "fit", "status", "date", "source", "notes")
 
 HEADER_ALIASES: dict[str, set[str]] = {
-    "company": {"empresa", "company", "compania", "employer", "cliente", "client"},
+    "company": {"empresa", "company", "compania", "employer"},
+    "end_client": {"cliente final", "end client", "final client", "cliente"},
+    "location": {"ubicacion", "location", "ciudad", "city", "lugar"},
+    "source": {"fuente", "source", "portal", "canal"},
     "role": {"puesto", "role", "rol", "position", "posicion", "cargo", "title", "job title", "vacante"},
     "link": {"link", "url", "enlace", "posting", "job link"},
     "fit": {"fit", "fit %", "fit%", "match", "match %", "score", "% fit"},
@@ -92,6 +95,9 @@ class TrackerRow:
     status: str
     date: object
     notes: str
+    location: str = ""
+    end_client: str = ""
+    source: str = ""
 
 
 @dataclass
@@ -119,7 +125,10 @@ class NewEntry:
     fit: int | None = None  # 0-100
     status: str = "Pending review"
     notes: str = ""
-    date: date = field(default_factory=date.today)
+    location: str = ""
+    end_client: str = ""
+    source: str = ""
+    date: date | None = field(default_factory=date.today)
 
 
 def _detect_layout(ws: Worksheet) -> SheetLayout | None:
@@ -172,6 +181,9 @@ class Tracker:
                         status=str(values.get("status") or "").strip(),
                         date=values.get("date"),
                         notes=str(values.get("notes") or "").strip(),
+                        location=str(values.get("location") or "").strip(),
+                        end_client=str(values.get("end_client") or "").strip(),
+                        source=str(values.get("source") or "").strip(),
                     )
                 )
         return result
@@ -234,6 +246,9 @@ class Tracker:
             "status": entry.status,
             "date": entry.date,
             "notes": entry.notes or None,
+            "location": entry.location or None,
+            "end_client": entry.end_client or None,
+            "source": entry.source or None,
         }
         for fld, col in layout.columns.items():
             cell = ws.cell(new_row, col)
@@ -242,15 +257,20 @@ class Tracker:
             cell.value = values[fld]
             if fld == "link" and entry.link:
                 cell.hyperlink = entry.link
-            if fld == "date" and last == layout.header_row:
-                cell.number_format = "yyyy-mm-dd"
+            if last == layout.header_row:  # first row of an empty sheet: sensible formats
+                if fld == "date":
+                    cell.number_format = "yyyy-mm-dd"
+                elif fld == "fit" and isinstance(cell.value, float):
+                    cell.number_format = "0%"
 
+        _extend_autofilter(ws, new_row)
         self.backup()
         wb.save(self.path)
         return TrackerRow(
             sheet=sheet_name, row=new_row, company=entry.company, role=entry.role,
             link=entry.link, fit=values["fit"], status=entry.status, date=entry.date,
-            notes=entry.notes,
+            notes=entry.notes, location=entry.location, end_client=entry.end_client,
+            source=entry.source,
         )
 
 
@@ -273,9 +293,11 @@ def _fit_value(ws: Worksheet, layout: SheetLayout, fit: int | None) -> float | i
         for r in range(layout.header_row + 1, ws.max_row + 1)
         if isinstance(ws.cell(r, col).value, (int, float))
     ]
-    if existing and all(0 <= v <= 1 for v in existing):
-        return round(fit / 100, 2)
-    return fit
+    if existing:
+        as_fraction = all(0 <= v <= 1 for v in existing)
+    else:  # empty sheet: a "%" in the header means a percent-formatted fraction
+        as_fraction = "%" in str(ws.cell(layout.header_row, col).value or "")
+    return round(fit / 100, 2) if as_fraction else fit
 
 
 def _copy_style(src: object, dst: object) -> None:
@@ -285,3 +307,13 @@ def _copy_style(src: object, dst: object) -> None:
         dst.fill = copy(src.fill)  # type: ignore[attr-defined]
         dst.number_format = src.number_format  # type: ignore[attr-defined]
         dst.alignment = copy(src.alignment)  # type: ignore[attr-defined]
+
+
+def _extend_autofilter(ws: Worksheet, new_row: int) -> None:
+    """Keep an existing autofilter range covering the appended row."""
+    ref = ws.auto_filter.ref
+    if not ref:
+        return
+    match = re.fullmatch(r"([A-Z]+\d+):([A-Z]+)(\d+)", ref)
+    if match and int(match.group(3)) < new_row:
+        ws.auto_filter.ref = f"{match.group(1)}:{match.group(2)}{new_row}"

@@ -129,7 +129,7 @@ def _evaluation(decision_not_met: bool) -> PostingEvaluation:
         fit=FitResult(score=70, found=["Java", "AWS"], matched=["Java"], missing=["AWS"],
                       years_required=None, years_ok=True),
         requirements=RequirementsAssessment(
-            company="Acme Corp", role_title="Senior Java Developer",
+            company="Acme Corp", role_title="Senior Java Developer", location="Toronto",
             requirements=[Requirement(requirement="Kubernetes", kind="must_have",
                                       status=status, evidence="e")],  # type: ignore[arg-type]
         ),
@@ -146,3 +146,25 @@ def test_pipeline_refuses_stopped_posting(tracker: Tracker) -> None:
     with pytest.raises(TrackerError):
         add_to_tracker(tracker, _evaluation(True), status="x")
     assert len(tracker.rows()) == 3
+
+
+def test_template_round_trip(tmp_path: Path) -> None:
+    from job_assistant.tracker.template import create_tracker_template
+
+    path = create_tracker_template(tmp_path / "data" / "tracker.xlsx")
+    with pytest.raises(FileExistsError):
+        create_tracker_template(path)
+
+    t = Tracker(path)
+    assert [l.name for l in t.layouts()] == ["Aplicaciones"]  # contacts sheet is not an applications sheet
+    assert set(t.layouts()[0].columns) == {
+        "company", "role", "end_client", "location", "link", "fit", "status", "date", "source", "notes"
+    }
+    row = t.add(NewEntry(company="Desjardins", role="Développeur Java", location="Montréal, QC",
+                         fit=81, status="Por aplicar"))
+    assert row.row == 2
+    ws = load_workbook(path)["Aplicaciones"]
+    assert ws["F2"].value == 0.81 and ws["F2"].number_format == "0%"
+    assert ws["D2"].value == "Montréal, QC"
+    assert ws.auto_filter.ref == "A1:J2"
+    assert t.rows()[0].location == "Montréal, QC"
