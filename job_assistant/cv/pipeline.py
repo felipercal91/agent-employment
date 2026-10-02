@@ -19,7 +19,7 @@ from job_assistant.cv.master import CVMaster
 from job_assistant.cv.render import build_html, render_pdf
 from job_assistant.tailoring.market import Language
 
-DEFAULT_MAX_ROUNDS = 3
+DEFAULT_MAX_ROUNDS = 2  # each extra round is a full writer + reviewer call; round 3 rarely improved
 
 Renderer = Callable[[str, Path], int]
 

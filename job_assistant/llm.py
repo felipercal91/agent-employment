@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from langchain_anthropic import ChatAnthropic
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 
 from job_assistant.config import Settings
 
 
-def get_chat_model(settings: Settings, max_tokens: int = 8192) -> ChatAnthropic:
+def get_chat_model(
+    settings: Settings, max_tokens: int = 8192, callbacks: list[BaseCallbackHandler] | None = None
+) -> ChatAnthropic:
     headers = (
         {"anthropic-workspace-id": settings.workspace_id} if settings.workspace_id else None
     )
@@ -17,6 +20,7 @@ def get_chat_model(settings: Settings, max_tokens: int = 8192) -> ChatAnthropic:
         api_key=settings.anthropic_api_key,
         max_tokens=max_tokens,
         default_headers=headers,
+        callbacks=callbacks,
     )
 
 

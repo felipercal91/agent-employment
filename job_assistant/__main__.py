@@ -8,6 +8,7 @@ import sys
 from collections import Counter
 
 from job_assistant.config import ConfigError, Settings, load_settings
+from job_assistant.cv.pipeline import DEFAULT_MAX_ROUNDS
 from job_assistant.tracker.excel import Tracker, TrackerError, TrackerRow
 
 
@@ -548,6 +549,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
     from job_assistant.agents.resume_writer import ResumeWriterAgent
     from job_assistant.cv import postular
     from job_assistant.cv.master import MasterNotFoundError, load_master
+    from job_assistant.usage import UsageTracker
     from job_assistant.llm import get_chat_model
     from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
     from job_assistant.profile.store import ProfileStore, persistent_client
@@ -573,7 +575,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
         print("Nothing to do: no rows with Estado empty / Nuevo / Regenerar / Forzar.")
         return 0
 
-    llm = get_chat_model(settings, max_tokens=16000)
+    usage_tracker = UsageTracker()
+    llm = get_chat_model(settings, max_tokens=16000, callbacks=[usage_tracker])
     agents = dict(
         requirements=RequirementsAgent(llm), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(llm)
     )
@@ -584,6 +587,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
     for row in rows:
         label = row.get("company") or row.get("link") or f"row {row['_row']}"
         print(f"\n[row {row['_row']}] {label}")
+        before = usage_tracker.snapshot()
         try:
             out = postular.process_row(
                 row, path=path, master=master, profile=profile, output_dir=settings.output_dir,
@@ -606,11 +610,13 @@ def cmd_postular(args: argparse.Namespace) -> int:
             continue
         score = f" | HR {out.score}/10" if out.score is not None else ""
         print(f"  {out.status}: {out.company} – {out.role}{score}")
+        print(f"  Usage: {(usage_tracker.snapshot() - before).describe(settings.model)}")
         if out.cv_path:
             print(f"  CV: {out.cv_path}")
         else:
             print(f"  {out.detail}")
-    print(f"\nDone. Results written to sheet '{postular.SHEET}' in {path}.")
+    print(f"\nTotal usage: {usage_tracker.snapshot().describe(settings.model)}")
+    print(f"Done. Results written to sheet '{postular.SHEET}' in {path}.")
     return 1 if failures else 0
 
 
@@ -685,7 +691,8 @@ def main(argv: list[str] | None = None) -> int:
 
     post = sub.add_parser("postular", help="Write a CV for each posting listed in sheet 'Postular'")
     post.add_argument("--row", type=int, help="Process only this Excel row (any status)")
-    post.add_argument("--max-rounds", type=int, default=3, help="Writer <-> HR review rounds (default 3)")
+    post.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS,
+                      help=f"Writer <-> HR review rounds (default {DEFAULT_MAX_ROUNDS})")
     post.set_defaults(func=cmd_postular)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")

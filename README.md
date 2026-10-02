@@ -118,7 +118,7 @@ python -m job_assistant postular            # procesa filas con Estado vacío / 
 python -m job_assistant postular --row 5    # solo esa fila, sin importar su estado
 ```
 
-Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obligatorio que no cumples, se detiene salvo `Forzar`), el **Agente Redactor** escribe el CV con tus hechos fijos (`data/cv_master.toml`) y el **Agente HR** lo revisa (veracidad, cobertura, tono humano, claridad, ATS) hasta 3 rondas. Se conserva la mejor ronda.
+Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obligatorio que no cumples, se detiene salvo `Forzar`), el **Agente Redactor** escribe el CV con tus hechos fijos (`data/cv_master.toml`) y el **Agente HR** lo revisa (veracidad, cobertura, tono humano, claridad, ATS) hasta 2 rondas. Se conserva la mejor ronda.
 
 Salida en `output/cv/<fecha>_<empresa>_<puesto>/`: el PDF (`Felipe_Rodriguez_Resume_...` o `..._CV_...` en francés), `job_description.txt` y `revision_hr.md` (puntajes, observaciones, brechas, preguntas probables de entrevista). La fila se actualiza con Estado, Archivo CV (con link), Puntaje HR y Observaciones.
 
