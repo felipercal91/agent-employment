@@ -517,3 +517,34 @@ def test_review_effort_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     s = settings_with('low')
     assert get_chat_model(s, effort='low').reasoning_effort == 'low'
     assert get_chat_model(s).reasoning_effort is None
+
+
+def test_decent_first_round_is_not_retried(master: Any, tmp_path: Path) -> None:
+    """Average 6.8 is below 'ready' (7.0) but above the retry threshold: keep it, save a round."""
+    major = ReviewIssue(severity="major", where="s", problem="p", fix="f")
+    writer = FakeWriter([content()])
+    reviewer = FakeReviewer([review(7, [major])])
+    reviewer.reviews[0].scores.truthfulness = 6  # average 6.8, truthfulness below 7 -> not "ready"
+    result = generate_resume(JD, master, "en", writer, reviewer, tmp_path / "cv.pdf",  # type: ignore[arg-type]
+                             max_rounds=3, renderer=fake_render)
+    assert not result.passed and len(writer.calls) == 1
+
+
+def test_blocker_forces_a_retry_even_when_average_is_decent(master: Any, tmp_path: Path) -> None:
+    blocker = ReviewIssue(severity="blocker", where="s", problem="invented", fix="remove")
+    writer = FakeWriter([content()])
+    reviewer = FakeReviewer([review(8, [blocker]), review(8)])
+    result = generate_resume(JD, master, "en", writer, reviewer, tmp_path / "cv.pdf",  # type: ignore[arg-type]
+                             max_rounds=3, renderer=fake_render)
+    assert result.passed and len(writer.calls) == 2
+
+
+def test_cv_paths_stay_short_on_windows(tmp_path: Path) -> None:
+    deep = tmp_path / ('a' * 30)
+    long_company, long_role = 'Resonaite International Holdings', 'Delivery Manager (Professional Services and Managed Cloud Operations)'
+    unbounded = len(str(deep / 'cv')) + len(f'2026-10-01_{long_company}_{long_role}') * 2 + 30
+    folder, pdf = postular.bounded_paths(deep, TODAY, 'Felipe_Rodriguez', 'en', long_company, long_role)
+    assert len(str(pdf)) <= postular.MAX_PATH_CHARS < 260 < unbounded
+    assert pdf.parent == folder and pdf.suffix == '.pdf' and 'Resonai' in pdf.name
+    short = postular.bounded_paths(tmp_path, TODAY, 'X', 'fr', 'Acme', 'Dev')[1]
+    assert short.name == 'X_CV_Acme_Dev.pdf'

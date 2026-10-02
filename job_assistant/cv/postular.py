@@ -109,11 +109,35 @@ def choose_language(row_value: object, jd_text: str) -> Language:
     return "fr" if is_french_text(jd_text) else "en"
 
 
-def cv_filename(prefix: str, lang: Language, company: str, role: str) -> str:
+MAX_PATH_CHARS = 200  # Windows stops at 260; leave room for the temp/backup suffixes
+
+
+def cv_filename(prefix: str, lang: Language, company: str, role: str,
+                company_chars: int = 30, role_chars: int = 40) -> str:
     kind = "Resume" if lang == "en" else "CV"
+
     def part(text: str, n: int) -> str:
         return "-".join(w.capitalize() for w in slugify(text, n).split("-")) or "Unknown"
-    return f"{prefix}_{kind}_{part(company, 30)}_{part(role, 40)}.pdf"
+
+    return f"{prefix}_{kind}_{part(company, company_chars)}_{part(role, role_chars)}.pdf"
+
+
+def bounded_paths(output_dir: Path, today: date, prefix: str, lang: Language,
+                  company: str, role: str) -> tuple[Path, Path]:
+    """Folder and PDF paths that stay under MAX_PATH_CHARS by shortening the role, then the company."""
+    base = str(output_dir.resolve())
+    company_chars, role_chars = 30, 40
+    while True:
+        folder = output_dir / "cv" / f"{today.isoformat()}_{slugify(company, company_chars)}_{slugify(role, role_chars)}"
+        pdf = folder / cv_filename(prefix, lang, company, role, company_chars, role_chars)
+        if len(base) + len(str(pdf.relative_to(output_dir))) + 1 <= MAX_PATH_CHARS or (company_chars <= 8 and role_chars <= 8):
+            return folder, pdf
+        if role_chars > 12:
+            role_chars -= 4
+        elif company_chars > 8:
+            company_chars -= 4
+        else:
+            role_chars = max(8, role_chars - 2)
 
 
 @dataclass
@@ -193,8 +217,8 @@ def process_row(
 
     # 3. Writer <-> HR reviewer loop, then PDF
     lang = choose_language(row.get("language"), jd.text)
-    folder = output_dir / "cv" / f"{today.isoformat()}_{slugify(company, 30)}_{slugify(role, 40)}"
-    pdf = folder / cv_filename(str(master.contact.get("file_prefix", "CV")), lang, company, role)
+    folder, pdf = bounded_paths(output_dir, today, str(master.contact.get("file_prefix", "CV")),
+                                lang, company, role)
     quebec = detect_market(jd.text, location, company).is_quebec
     result = generate_resume(jd_text, master, lang, writer, reviewer, pdf,
                              str(row.get("notes") or ""), max_rounds, renderer, quebec)

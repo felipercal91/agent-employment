@@ -20,6 +20,9 @@ from job_assistant.cv.render import build_html, render_pdf
 from job_assistant.tailoring.market import Language
 
 DEFAULT_MAX_ROUNDS = 2  # each extra round is a full writer + reviewer call; round 3 rarely improved
+# Measured on 18 postings: a second round clearly helps drafts that score below 6.5 (+0.8 on
+# average) and does not help the rest (about 0). Drafts at or above this stay as they are.
+RETRY_BELOW_AVERAGE = 6.5
 
 Renderer = Callable[[str, Path], int]
 
@@ -85,7 +88,10 @@ def generate_resume(
         key = (ok, -serious, review.scores.average())
         if best is None or key > best[0]:
             best = (key, result)
-        if ok:
+        has_blocker = any(i.severity == "blocker" for i in review.issues) or any(
+            f.severity == "blocker" for f in findings
+        )
+        if ok or (review.scores.average() >= RETRY_BELOW_AVERAGE and not has_blocker):
             break
         feedback = feedback_lines(review, findings)
 
