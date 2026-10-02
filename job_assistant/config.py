@@ -32,6 +32,9 @@ class Settings:
     followup_stale_days: int = 7
     # No new follow-up to the same recipient/company within this many days of the last one.
     followup_cooldown_days: int = 7
+    # Reasoning effort for classification/review calls (requirements check, HR reviewer); the
+    # writer keeps the model's default. low | medium | high; empty = default for everything.
+    review_effort: str | None = "low"
     # Required only for API keys not scoped to a workspace.
     workspace_id: str | None = None
 
@@ -39,6 +42,15 @@ class Settings:
 def _resolve_dir(value: str | None, default: str) -> Path:
     path = Path(value or default)
     return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _effort(value: str | None) -> str | None:
+    if value is None:
+        return "low"  # not configured: the cheap default for review calls
+    value = value.strip().lower()
+    if value in {"low", "medium", "high"}:
+        return value
+    return None  # empty or "default": leave the model's default
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -67,5 +79,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
         tracker_initial_status=os.getenv("TRACKER_INITIAL_STATUS", "").strip() or "Pending review",
         followup_stale_days=int(os.getenv("FOLLOWUP_STALE_DAYS", "").strip() or 7),
         followup_cooldown_days=int(os.getenv("FOLLOWUP_COOLDOWN_DAYS", "").strip() or 7),
+        review_effort=_effort(os.getenv("REVIEW_EFFORT")),
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
     )

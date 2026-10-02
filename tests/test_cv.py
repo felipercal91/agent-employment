@@ -261,12 +261,18 @@ def test_scores_are_clamped() -> None:
 
 
 def test_passes_rule() -> None:
+    major = ReviewIssue(severity="major", where="s", problem="p", fix="f")
+    blocker = ReviewIssue(severity="blocker", where="s", problem="p", fix="f")
     assert passes(review(9), [])
-    assert not passes(review(6), [])
-    assert not passes(review(9, [ReviewIssue(severity="major", where="s", problem="p", fix="f")]), [])
-    assert not passes(review(9), [Finding("blocker", "p", "f")])
-    assert passes(review(9, [ReviewIssue(severity="minor", where="s", problem="p", fix="f")]),
-                  [Finding("minor", "p", "f")])
+    assert not passes(review(6), [])                      # average below 7
+    assert passes(review(8, [major]), [Finding("major", "p", "f")])  # majors are listed, not blocking
+    assert not passes(review(9, [blocker]), [])           # a reviewer blocker blocks
+    assert not passes(review(9), [Finding("blocker", "p", "f")])     # so does a deterministic one
+    low_truth = review(9)
+    low_truth.scores.truthfulness = 6
+    assert not passes(low_truth, [])                      # truthfulness must reach 7 on its own
+    low_fit = review(9, fit=2)
+    assert passes(low_fit, [])                            # candidate_fit is informational
 
 
 def test_loop_revises_with_feedback_then_passes(master: Any, tmp_path: Path) -> None:
@@ -282,6 +288,13 @@ def test_loop_revises_with_feedback_then_passes(master: Any, tmp_path: Path) -> 
     assert any("15" in line for line in second["feedback"])          # deterministic finding forwarded
     assert any("be specific" in line for line in second["feedback"])  # reviewer issue forwarded
     assert (tmp_path / "cv.pdf").read_text(encoding="utf-8").count("Results-driven") == 0
+
+
+def test_good_first_round_skips_the_second(master: Any, tmp_path: Path) -> None:
+    writer, reviewer = FakeWriter([content()]), FakeReviewer([review(8)])
+    result = generate_resume(JD, master, "en", writer, reviewer, tmp_path / "cv.pdf",  # type: ignore[arg-type]
+                             max_rounds=3, renderer=fake_render)
+    assert result.passed and len(writer.calls) == 1 and reviewer.calls == 1
 
 
 def test_loop_stops_at_max_rounds(master: Any, tmp_path: Path) -> None:
@@ -484,3 +497,23 @@ def test_tiny_description_still_missing(sheet_path: Path, master: Any, tmp_path:
 
     [row] = postular.pending_rows(sheet_path)
     assert run(sheet_path, master, tmp_path, row, fetch=refuse).status == postular.STATUS_NO_JD
+
+
+def test_review_effort_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from job_assistant.config import load_settings
+    from job_assistant.llm import get_chat_model
+
+    def settings_with(value: str | None) -> Any:
+        for var in ('REVIEW_EFFORT', 'ANTHROPIC_API_KEY'):  # load_dotenv leaks into os.environ
+            monkeypatch.delenv(var, raising=False)
+        env = tmp_path / 'effort.env'
+        env.write_text('ANTHROPIC_API_KEY=k' + chr(10) + (f'REVIEW_EFFORT={value}' + chr(10) if value is not None else ''),
+                       encoding='utf-8')
+        return load_settings(env)
+
+    assert settings_with(None).review_effort == 'low'        # not configured: cheap default
+    assert settings_with('medium').review_effort == 'medium'
+    assert settings_with('').review_effort is None           # empty: the model's default
+    s = settings_with('low')
+    assert get_chat_model(s, effort='low').reasoning_effort == 'low'
+    assert get_chat_model(s).reasoning_effort is None

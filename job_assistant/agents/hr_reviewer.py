@@ -100,12 +100,18 @@ class HRReview(BaseModel):
 
 
 def passes(review: HRReview, findings: list[Finding]) -> bool:
-    """Pass = no blocker or major issue from either reviewer, and every score >= PASS_MIN_SCORE."""
-    serious = {"blocker", "major"}
+    """Good enough to send after the candidate's own review: no blocker, and the CV-quality
+    average and the truthfulness score both reach PASS_MIN_SCORE.
+
+    Remaining "major" observations are still listed in the report for the candidate; they no
+    longer force another (paid) writer round, because round 2 rarely improved a CV that was
+    already at this level.
+    """
     return (
-        review.scores.minimum() >= PASS_MIN_SCORE
-        and not any(i.severity in serious for i in review.issues)
-        and not any(f.severity in serious for f in findings)
+        review.scores.average() >= PASS_MIN_SCORE
+        and review.scores.truthfulness >= PASS_MIN_SCORE
+        and not any(i.severity == "blocker" for i in review.issues)
+        and not any(f.severity == "blocker" for f in findings)
     )
 
 

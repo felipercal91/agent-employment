@@ -10,8 +10,12 @@ from job_assistant.config import Settings
 
 
 def get_chat_model(
-    settings: Settings, max_tokens: int = 8192, callbacks: list[BaseCallbackHandler] | None = None
+    settings: Settings,
+    max_tokens: int = 8192,
+    callbacks: list[BaseCallbackHandler] | None = None,
+    effort: str | None = None,
 ) -> ChatAnthropic:
+    """`effort` (low/medium/high) sets how much the model reasons; None = the model's default."""
     headers = (
         {"anthropic-workspace-id": settings.workspace_id} if settings.workspace_id else None
     )
@@ -21,6 +25,7 @@ def get_chat_model(
         max_tokens=max_tokens,
         default_headers=headers,
         callbacks=callbacks,
+        reasoning_effort=effort,
     )
 
 

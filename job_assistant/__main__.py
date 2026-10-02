@@ -577,8 +577,9 @@ def cmd_postular(args: argparse.Namespace) -> int:
 
     usage_tracker = UsageTracker()
     llm = get_chat_model(settings, max_tokens=16000, callbacks=[usage_tracker])
+    light = get_chat_model(settings, max_tokens=16000, callbacks=[usage_tracker], effort=settings.review_effort)
     agents = dict(
-        requirements=RequirementsAgent(llm), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(llm)
+        requirements=RequirementsAgent(light), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(light)
     )
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "
