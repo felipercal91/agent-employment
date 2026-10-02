@@ -107,11 +107,13 @@ def render_review_report(result: ResumeResult, company: str, role: str, link: st
                          requirement_notes: list[str]) -> str:
     r = result.review
     s = r.scores
+    shift = s.adjusted(0.0)
+    raw_note = f" (el modelo dio {s.raw_average()}; calibrado {shift:+.1f})" if shift else ""
     lines = [
         f"# Revisión HR: {role} @ {company}",
         "",
         f"**Resultado: {'APROBADO' if result.passed else 'REVISAR MANUALMENTE'}** · "
-        f"puntaje promedio {s.average()}/10 · {len(result.rounds)} ronda(s) · {result.pages} página(s) · "
+        f"puntaje promedio {s.average()}/10{raw_note} · {len(result.rounds)} ronda(s) · {result.pages} página(s) · "
         f"idioma {result.language}",
         "",
         f"Vacante: {link or '(sin link)'}  ",

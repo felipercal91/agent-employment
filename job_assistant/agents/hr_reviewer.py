@@ -12,7 +12,7 @@ from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, PrivateAttr, field_validator
 
 from job_assistant.llm import structured_llm
 from job_assistant.cv.checks import Finding
@@ -21,6 +21,10 @@ from job_assistant.cv.master import CVMaster
 from job_assistant.tailoring.market import Language
 
 PASS_MIN_SCORE = 7
+
+# Measured by having both reviewers score the same 8 CVs: DeepSeek averaged 6.88 and Claude 6.08
+# (+0.8). Subtracting the difference makes a given score mean the same with either provider.
+PROVIDER_SCORE_OFFSET = {"anthropic": 0.0, "deepseek": -0.8}
 
 SYSTEM_PROMPT = """You are a senior technical recruiter in Canada who screens backend developer \
 CVs every day, together with the hiring manager's eye for substance. You review ONE tailored CV \
@@ -81,19 +85,34 @@ class Scores(BaseModel):
     ats_keywords: int
     candidate_fit: int  # informational: the candidate vs the posting, gaps included
 
+    # Calibration against another provider's scale; not part of the model output or the JSON.
+    _offset: float = PrivateAttr(default=0.0)
+
     @field_validator("*")
     @classmethod
     def _clamp(cls, v: int) -> int:
         return max(0, min(10, v))
 
+    def with_offset(self, offset: float) -> "Scores":
+        calibrated = self.model_copy()
+        calibrated._offset = offset
+        return calibrated
+
+    def adjusted(self, value: float) -> float:
+        return max(0.0, value + self._offset)
+
     def minimum(self) -> int:
         """Lowest CV-quality score (candidate_fit excluded: the writer cannot change it)."""
-        return min(self.requirements_coverage, self.truthfulness, self.human_tone,
-                   self.clarity, self.ats_keywords)
+        return round(self.adjusted(min(self.requirements_coverage, self.truthfulness, self.human_tone,
+                                       self.clarity, self.ats_keywords)))
 
-    def average(self) -> float:
+    def raw_average(self) -> float:
         return round((self.requirements_coverage + self.truthfulness + self.human_tone
                       + self.clarity + self.ats_keywords) / 5, 1)
+
+    def average(self) -> float:
+        """Average CV-quality score (candidate_fit excluded), calibrated."""
+        return round(self.adjusted(self.raw_average()), 1)
 
 
 class ReviewIssue(BaseModel):
@@ -122,7 +141,7 @@ def passes(review: HRReview, findings: list[Finding]) -> bool:
     """
     return (
         review.scores.average() >= PASS_MIN_SCORE
-        and review.scores.truthfulness >= PASS_MIN_SCORE
+        and review.scores.adjusted(review.scores.truthfulness) >= PASS_MIN_SCORE
         and not any(i.severity == "blocker" for i in review.issues)
         and not any(f.severity == "blocker" for f in findings)
     )
@@ -168,8 +187,9 @@ def build_messages(
 
 
 class HRReviewerAgent:
-    def __init__(self, llm: BaseChatModel) -> None:
+    def __init__(self, llm: BaseChatModel, score_offset: float = 0.0) -> None:
         self._llm = structured_llm(llm, HRReview)
+        self._offset = score_offset
 
     def review(
         self, jd_text: str, content: ResumeContent, master: CVMaster, lang: Language,
@@ -177,4 +197,6 @@ class HRReviewerAgent:
     ) -> HRReview:
         result = self._llm.invoke(build_messages(jd_text, content, master, lang, findings))
         assert isinstance(result, HRReview)
+        if self._offset:
+            result = result.model_copy(update={"scores": result.scores.with_offset(self._offset)})
         return result

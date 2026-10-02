@@ -562,7 +562,7 @@ def _short(exc: BaseException) -> str:
 
 
 def cmd_postular(args: argparse.Namespace) -> int:
-    from job_assistant.agents.hr_reviewer import HRReviewerAgent
+    from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
     from job_assistant.agents.requirements_agent import RequirementsAgent
     from job_assistant.agents.resume_writer import ResumeWriterAgent
     from job_assistant.cv import postular
@@ -613,7 +613,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
     print(f"Providers: writer = {writer_provider} ({writer_model}), "
           f"requirements + HR review = {review_provider} ({review_model})")
     agents = dict(
-        requirements=RequirementsAgent(light), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(light)
+        requirements=RequirementsAgent(light), writer=ResumeWriterAgent(llm),
+        reviewer=HRReviewerAgent(light, PROVIDER_SCORE_OFFSET[review_provider]),
     )
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "

@@ -661,3 +661,29 @@ def test_logistics_requirements_never_stop_the_pipeline() -> None:
     assert fixed.should_stop  # the CPO requirement still stops it
     only_logistics = RequirementsAssessment(company='A', role_title='B', location='C', requirements=a.requirements[:2])
     assert not soften_logistics(only_logistics).should_stop
+
+
+def test_deepseek_scores_are_calibrated_to_claude_scale(master: Any) -> None:
+    from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
+
+    assert PROVIDER_SCORE_OFFSET == {"anthropic": 0.0, "deepseek": -0.8}
+    raw = review(8)  # raw average 8.0, truthfulness 8
+    calibrated = raw.model_copy(update={"scores": raw.scores.with_offset(-0.8)})
+    assert raw.scores.average() == 8.0 and calibrated.scores.average() == 7.2
+    assert calibrated.scores.raw_average() == 8.0 and calibrated.scores.minimum() == 7
+    assert passes(calibrated, [])                                   # 7.2 and truthfulness 7.2 -> ready
+    weaker = review(7)
+    assert passes(weaker, []) and not passes(weaker.model_copy(update={"scores": weaker.scores.with_offset(-0.8)}), [])
+    assert "_offset" not in calibrated.scores.model_dump() and "_offset" not in HRReview.model_json_schema()["$defs"]["Scores"]["properties"]
+
+    class Fixed:
+        def __init__(self) -> None:
+            self.result = review(8)
+
+        def invoke(self, messages: Any) -> HRReview:
+            return self.result
+
+    agent = HRReviewerAgent.__new__(HRReviewerAgent)
+    agent._llm, agent._offset = Fixed(), -0.8  # type: ignore[assignment]
+    out = agent.review(JD, content(), master, "en", [])
+    assert out.scores.average() == 7.2
