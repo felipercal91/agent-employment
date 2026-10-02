@@ -75,7 +75,7 @@ def generate_resume(
         content = writer.write(jd_text, master, lang, candidate_notes, content, feedback, quebec)
         content, fixes = normalize(content, master, lang)
         pages = renderer(build_html(master, content, lang), out_pdf)
-        findings = run_checks(content, lang, source, jd_text, pages, quebec)
+        findings = run_checks(content, lang, source, jd_text, pages, quebec, master)
         findings += [Finding("minor", fix, "Keep to the facts' structure.") for fix in fixes]
         review = reviewer.review(jd_text, content, master, lang, findings)
         ok = passes(review, findings)

@@ -58,12 +58,31 @@ microservices" when the posting does and the facts show it).
 same item across competencies, tools and methodologies.
 - Years: "13+ years" describes the whole career. Never attach a long duration to a specific \
 technology unless the job dates in the facts support it (check which job mentions it and when).
-- Experience: one entry per job id, in the facts' order. Most recent job 4-6 bullets, the \
-others 2-4. For an individual-contributor posting, lead each job with hands-on technical work, \
-then leadership. Never merge unrelated achievements into one bullet. The whole CV must fit \
-on 2 pages.
+- Experience: one entry per job id, in the facts' order. For an individual-contributor posting, \
+lead each job with hands-on technical work, then leadership. Never merge unrelated \
+achievements into one bullet. The whole CV must fit on 2 pages.
 - The candidate's own notes for this application, if any, are instructions to follow when \
 they do not conflict with the truth rules.
+
+Tailoring (this is what makes the CV worth sending; do all five steps):
+1. Fill `tailoring_plan` first: the 5-8 most important requirements of the posting. For each, \
+quote the fact that supports it (or write 'none') and say where it will appear.
+2. Select: keep only the bullets that matter for this posting. Most recent job 4-6 bullets, \
+each other job 2-3. Leave out the least relevant ones; do not keep every bullet.
+3. Order: inside each job, put the bullet most relevant to the posting first.
+4. Rewrite: re-express at least half of the kept bullets in the posting's own vocabulary \
+(verbs, nouns, technology names) wherever the facts support it, keeping every number and the \
+real scope. Copy a bullet word for word only when it already matches the posting.
+5. The headline and summary must answer the posting's top 3 requirements with evidence from \
+the facts, not generic seniority text.
+Example, for a posting that asks for microservice integrations:
+  Fact: "Worked directly with architects to define microservices-based integration points, built \
+with Spring Boot, between legacy insurance systems and modern analytics tooling, cutting \
+technical decision time by 30%."
+  Good: lead "Defined Spring Boot microservice integrations", rest "with the architects, \
+between legacy insurance systems and analytics tooling, cutting technical decision time by 30%."
+  Bad: "Architected an event-driven platform with Kafka" (new scope and a new technology).
+Keep the verb's real weight: worked/reviewed/tracked/mentored never become led/built/owned.
 
 {language_rule}"""
 

@@ -595,17 +595,23 @@ def cmd_postular(args: argparse.Namespace) -> int:
 
     writer_provider = args.writer_provider or settings.writer_provider
     review_provider = args.review_provider or settings.review_provider
-    trackers = {"anthropic": UsageTracker(settings.model), "deepseek": UsageTracker(settings.deepseek_model)}
-    usage_tracker = UsageGroup(list(trackers.values()))
+    writer_model = (settings.deepseek_writer_model or settings.deepseek_model
+                    if writer_provider == "deepseek" else settings.model)
+    review_model = settings.deepseek_model if review_provider == "deepseek" else settings.model
+    writer_tracker, review_tracker = UsageTracker(writer_model), UsageTracker(review_model)
+    usage_tracker = UsageGroup([writer_tracker, review_tracker])
     try:
-        llm = get_chat_model(settings, max_tokens=16000, callbacks=[trackers[writer_provider]],
-                             provider=writer_provider)
-        light = get_chat_model(settings, max_tokens=16000, callbacks=[trackers[review_provider]],
-                               effort=settings.review_effort, provider=review_provider)
+        llm = get_chat_model(settings, max_tokens=16000, callbacks=[writer_tracker],
+                             provider=writer_provider, thinking=settings.writer_thinking,
+                             model=settings.deepseek_writer_model)
+        light = get_chat_model(settings, max_tokens=16000, callbacks=[review_tracker],
+                               effort=settings.review_effort, provider=review_provider,
+                               thinking=settings.review_thinking)
     except ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    print(f"Providers: writer = {writer_provider}, requirements + HR review = {review_provider}")
+    print(f"Providers: writer = {writer_provider} ({writer_model}), "
+          f"requirements + HR review = {review_provider} ({review_model})")
     agents = dict(
         requirements=RequirementsAgent(light), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(light)
     )

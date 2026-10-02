@@ -40,7 +40,10 @@ class Settings:
     # Optional second provider. Which provider each role uses is chosen per role.
     deepseek_api_key: str | None = field(default=None, repr=False)
     deepseek_model: str = "deepseek-flash"
-    deepseek_thinking: bool = False  # reasoning mode: slower and pricier; off for this workload
+    deepseek_thinking: bool = False  # default reasoning mode (slower and pricier)
+    writer_thinking: bool | None = None  # per role; None = deepseek_thinking
+    review_thinking: bool | None = None
+    deepseek_writer_model: str | None = None  # None = deepseek_model
     writer_provider: str = "anthropic"  # the CV writer
     review_provider: str = "anthropic"  # requirements check + HR reviewer
 
@@ -57,6 +60,14 @@ def _effort(value: str | None) -> str | None:
     if value in {"low", "medium", "high"}:
         return value
     return None  # empty or "default": leave the model's default
+
+
+def _flag(value: str | None) -> bool | None:
+    """true/false from an env var; None when it is unset or empty."""
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    return text in ("1", "true", "yes", "on")
 
 
 def _provider(name: str, value: str | None, has_deepseek_key: bool) -> str:
@@ -99,7 +110,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
         deepseek_api_key=deepseek_key,
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "").strip() or "deepseek-flash",
-        deepseek_thinking=os.getenv("DEEPSEEK_THINKING", "").strip().lower() in ("1", "true", "yes", "on"),
+        deepseek_thinking=_flag(os.getenv("DEEPSEEK_THINKING")) is True,
+        writer_thinking=_flag(os.getenv("WRITER_THINKING")),
+        review_thinking=_flag(os.getenv("REVIEW_THINKING")),
+        deepseek_writer_model=os.getenv("DEEPSEEK_WRITER_MODEL", "").strip() or None,
         writer_provider=_provider("WRITER_PROVIDER", os.getenv("WRITER_PROVIDER"), bool(deepseek_key)),
         review_provider=_provider("REVIEW_PROVIDER", os.getenv("REVIEW_PROVIDER"), bool(deepseek_key)),
     )

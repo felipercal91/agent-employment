@@ -6,10 +6,12 @@ the facts, stock "AI" phrasing, the protected French title, length.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
 from job_assistant.cv.content import ResumeContent
+from job_assistant.cv.master import CVMaster
 from job_assistant.scoring.fit import extract_keywords
 from job_assistant.tailoring.guardrails import protected_title_mentions
 from job_assistant.tailoring.market import Language
@@ -35,6 +37,16 @@ AI_PHRASES = {
         "incontournable", "véritable", "pilier", "savoir-faire éprouvé",
     ],
 }
+# Verbs that claim ownership of a team or outcome. A bullet may only use one when the fact it
+# came from already does ("worked/reviewed/mentored" must not become "led").
+LEAD_VERBS = {
+    "en": {"led", "directed", "managed", "owned", "headed", "oversaw", "architected", "spearheaded"},
+    "fr": {"dirigé", "géré", "piloté", "supervisé", "architecturé", "dirige", "gère"},
+}
+_WORD = re.compile(r"[\wÀ-ÿ'-]+")
+MIN_MATCH_RATIO = 0.30  # below this, no source bullet is similar enough to judge
+
+
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
@@ -92,9 +104,29 @@ def missing_jd_keywords(content: ResumeContent, jd_text: str, source: str) -> tu
     return [k for k in absent if k in in_facts], [k for k in absent if k not in in_facts]
 
 
+def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
+    """Bullets that open with a leadership verb the matching fact does not use."""
+    lead = LEAD_VERBS[lang]
+    sources = {j.id: j.bullets for j in master.jobs(lang)}
+    problems: list[str] = []
+    for job in content.experience:
+        facts = sources.get(job.job_id, [])
+        for bullet in job.bullets:
+            text = bullet.text()
+            if not (set(w.lower() for w in _WORD.findall(text)[:3]) & lead):
+                continue
+            ratio, match = max(
+                ((difflib.SequenceMatcher(None, text.lower(), f.lower()).ratio(), f) for f in facts),
+                default=(0.0, ""),
+            )
+            if ratio >= MIN_MATCH_RATIO and not (set(w.lower() for w in _WORD.findall(match)) & lead):
+                problems.append(f"'{bullet.lead}' claims leadership; the fact says: '{match[:80]}...'")
+    return problems
+
+
 def run_checks(
     content: ResumeContent, lang: Language, source: str, jd_text: str, pages: int | None = None,
-    quebec: bool = False,
+    quebec: bool = False, master: CVMaster | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
     numbers = unsupported_numbers(content, source)
@@ -114,6 +146,11 @@ def run_checks(
         # The OIQ protects the title in English too ("engineer") for work in Quebec.
         findings.append(Finding("blocker", "Headline uses 'Engineer' for a Quebec position.",
                                 "Use 'Developer' (engineer is a protected title in Quebec, OIQ)."))
+    if master is not None:
+        upgrades = leadership_upgrades(content, master, lang)
+        if upgrades:
+            findings.append(Finding("major", "Leadership claim not in the facts: " + "; ".join(upgrades[:3]),
+                                    "Use the verb the fact itself uses (worked, reviewed, defined...)."))
     if re.search(r"certified scrum master", content.all_text(), re.I):
         findings.append(Finding("major", "'Certified Scrum Master' reads as the Scrum Alliance CSM.",
                                 "Write 'Scrum Master Professional Certificate (SMPC®)'."))

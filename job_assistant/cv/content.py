@@ -21,7 +21,17 @@ class JobBullets(BaseModel):
     bullets: list[Bullet]
 
 
+class PlanItem(BaseModel):
+    requirement: str = Field(description="One of the posting's most important requirements")
+    evidence: str = Field(description="The fact (short quote) that supports it, or 'none' if the facts do not")
+    placement: str = Field(description="Where it will appear: summary, a job's bullet, competencies or nowhere")
+
+
 class ResumeContent(BaseModel):
+    # Written first, so the writer decides what the posting needs before writing anything else.
+    tailoring_plan: list[PlanItem] = Field(
+        default_factory=list, description="The 5-8 key requirements of the posting mapped to the facts"
+    )
     title: str = Field(description="Headline under the name, e.g. 'Senior Java Developer'")
     summary: str = Field(description="Professional summary, 3-4 sentences, at most 90 words")
     competencies: list[str] = Field(description="8-12 core competencies, most relevant first")

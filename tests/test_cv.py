@@ -560,3 +560,84 @@ def test_process_row_saves_content_and_review_json(sheet_path: Path, master: Any
     saved = json.loads((out.cv_path.parent / "resume_content.json").read_text(encoding="utf-8"))
     assert saved["title"] == "Senior Java Developer" and saved["experience"][0]["job_id"] == "bank"
     assert json.loads((out.cv_path.parent / "hr_review.json").read_text(encoding="utf-8"))["scores"]["clarity"] == 9
+
+
+# ---- leadership-upgrade check and per-role DeepSeek settings --------------------------
+
+
+def test_leadership_upgrade_flagged(master: Any) -> None:
+    from job_assistant.cv.checks import leadership_upgrades
+
+    # fact: "Reviewed code for a team of 8 developers working in Java and PostgreSQL."
+    inflated = content(experience=[JobBullets(job_id="bank", bullets=[
+        Bullet(lead="Led code reviews", rest="for a team of 8 developers working in Java and PostgreSQL."),
+        Bullet(lead="Led event streaming", rest="between services with Apache Kafka, cutting reconciliation time by 40%."),
+        Bullet(lead="Wrote Java", rest="services for payments.")])])
+    problems = leadership_upgrades(inflated, master, "en")
+    assert len(problems) == 2 and "Led code reviews" in problems[0]   # worked/reviewed -> led
+    assert "Led event streaming" in problems[1]                        # implemented -> led
+    assert not any("Wrote Java" in x for x in problems)
+    # a leadership verb is fine when the fact itself leads: none of the example facts do, so use none
+    honest = content(experience=[JobBullets(job_id="bank", bullets=[
+        Bullet(lead="Reviewed code", rest="for a team of 8 developers working in Java and PostgreSQL.")])])
+    assert leadership_upgrades(honest, master, "en") == []
+    findings = run_checks(inflated, "en", master.source_text("en"), JD, 2, master=master)
+    assert any(f.severity == "major" and "Leadership claim" in f.problem for f in findings)
+
+
+def test_leadership_upgrade_french(master: Any) -> None:
+    from job_assistant.cv.checks import leadership_upgrades
+
+    inflated = content(experience=[JobBullets(job_id="bank", bullets=[
+        Bullet(lead="A dirigé la révision du code", rest="d'une équipe de 8 développeurs travaillant en Java et PostgreSQL.")])])
+    assert leadership_upgrades(inflated, master, "fr")
+
+
+def test_tailoring_plan_is_optional_and_not_rendered(master: Any) -> None:
+    from job_assistant.cv.content import PlanItem
+
+    plan = [PlanItem(requirement="Kafka", evidence="PLAN-ONLY-EVIDENCE-TEXT", placement="summary")]
+    c = content(tailoring_plan=plan)
+    assert "PLAN-ONLY-EVIDENCE-TEXT" not in c.all_text() and content().tailoring_plan == []
+    assert "PLAN-ONLY-EVIDENCE-TEXT" not in build_html(master, c, "en")
+    assert ResumeContent.model_json_schema()["properties"].keys().__iter__().__next__() == "tailoring_plan"
+
+
+def test_writer_prompt_has_tailoring_steps(master: Any) -> None:
+    from job_assistant.agents.resume_writer import build_messages as writer_messages
+
+    system, _ = writer_messages(JD, master, "en")
+    for needle in ("tailoring_plan", "Select:", "Order:", "Rewrite:", "worked/reviewed/tracked/mentored never become"):
+        assert needle in system.content
+
+
+def test_reviewer_prompt_has_anchors_and_quotes(master: Any) -> None:
+    from job_assistant.agents.hr_reviewer import build_messages as review_messages
+
+    system, _ = review_messages(JD, content(), master, "en", [])
+    assert "Scoring anchors" in system.content and "`quote` the exact CV text" in system.content
+    assert ReviewIssue(severity="minor", where="w", problem="p", fix="f").quote == ""
+
+
+def test_per_role_deepseek_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from job_assistant.config import load_settings
+    from job_assistant.llm import get_chat_model
+
+    for var in ("WRITER_THINKING", "REVIEW_THINKING", "DEEPSEEK_WRITER_MODEL", "DEEPSEEK_THINKING",
+                "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    env = tmp_path / "roles.env"
+    env.write_text(chr(10).join(["ANTHROPIC_API_KEY=k", "DEEPSEEK_API_KEY=d", "WRITER_THINKING=true",
+                                 "REVIEW_THINKING=false", "DEEPSEEK_WRITER_MODEL=deepseek-v4-pro", ""]), encoding="utf-8")
+    try:
+        s = load_settings(env)
+    finally:
+        for var in ("WRITER_THINKING", "REVIEW_THINKING", "DEEPSEEK_WRITER_MODEL", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"):
+            os.environ.pop(var, None)
+    assert (s.writer_thinking, s.review_thinking, s.deepseek_writer_model) == (True, False, "deepseek-v4-pro")
+    writer = get_chat_model(s, provider="deepseek", thinking=s.writer_thinking, model=s.deepseek_writer_model)
+    reviewer = get_chat_model(s, provider="deepseek", thinking=s.review_thinking)
+    assert writer.model_name == "deepseek-v4-pro" and writer.extra_body is None          # reasoning on
+    assert reviewer.model_name == "deepseek-flash" and reviewer.extra_body == {"thinking": {"type": "disabled"}}

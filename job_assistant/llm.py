@@ -30,6 +30,8 @@ def get_chat_model(
     callbacks: list[BaseCallbackHandler] | None = None,
     effort: str | None = None,
     provider: str = "anthropic",
+    thinking: bool | None = None,
+    model: str | None = None,
 ) -> BaseChatModel:
     """`effort` (low/medium/high) sets how much Claude reasons; None = the model's default.
 
@@ -38,12 +40,13 @@ def get_chat_model(
     if provider == "deepseek":
         if not settings.deepseek_api_key:
             raise ConfigError("DEEPSEEK_API_KEY is not set in .env.")
+        reasoning = settings.deepseek_thinking if thinking is None else thinking
         return ChatDeepSeek(
-            model=settings.deepseek_model,
+            model=model or settings.deepseek_model,
             api_key=settings.deepseek_api_key,
             max_tokens=max_tokens,
             callbacks=callbacks,
-            extra_body=None if settings.deepseek_thinking else {"thinking": {"type": "disabled"}},
+            extra_body=None if reasoning else {"thinking": {"type": "disabled"}},
         )
     if provider != "anthropic":
         raise ConfigError(f"Unknown provider '{provider}' (use one of: {', '.join(PROVIDERS)}).")

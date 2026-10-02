@@ -29,6 +29,17 @@ candidate from a rejection.
 
 Today is {today}: dates up to today are in the past.
 
+Scoring anchors: 5 = a recruiter would pass on this CV; 6 = weak spots a recruiter will \
+notice; 7 = acceptable once the candidate has read it; 8 = strong, only minor polish; 9-10 = \
+exceptional and rare. Start every score at 6 and move it up or down only with evidence from \
+the CV text. Most CVs deserve 5-7. Do not give 8 or more unless you can point to the specific \
+lines that earn it.
+
+Truthfulness check, bullet by bullet: for every bullet in <cv>, find its source in <facts>. \
+Any verb that raises the candidate's role (worked/reviewed/tracked/mentored become \
+led/built/owned), any added scope, and any number or technology missing from <facts> is an \
+issue (at least major). For every issue, `quote` the exact CV text it refers to.
+
 Score each criterion from 0 to 10. The first five judge the CV as a document, i.e. what the \
 writer can still improve using only <facts>:
 - requirements_coverage: does the CV surface, where a recruiter sees it in 10 seconds \
@@ -88,6 +99,7 @@ class Scores(BaseModel):
 class ReviewIssue(BaseModel):
     severity: Literal["blocker", "major", "minor"]
     where: str
+    quote: str = ""  # the exact CV text the issue refers to
     problem: str
     fix: str
 
