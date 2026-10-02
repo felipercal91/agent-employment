@@ -44,6 +44,19 @@ LEAD_VERBS = {
     "fr": {"dirigé", "géré", "piloté", "supervisé", "architecturé", "dirige", "gère"},
 }
 _WORD = re.compile(r"[\wÀ-ÿ'-]+")
+# Domains and skills that postings ask for and that a model is tempted to claim. If one appears in
+# the CV but nowhere in the candidate's facts, it is invented (e.g. "banking" for an insurance
+# developer, "secured APIs" when no security work is documented). Stems, matched as word starts.
+CLAIM_TERMS = {
+    "en": ["banking", "bank", "fintech", "healthcare", "telecom", "retail", "e-commerce", "ecommerce",
+           "lending", "mortgage", "payment", "secure", "secured", "security", "authentication",
+           "authorization", "encryption", "compliance", "regulatory", "regulated", "cloud-native",
+           "serverless", "unit test", "test automation", "automated test", "on-call", "startup"],
+    "fr": ["bancaire", "banque", "fintech", "santé", "télécom", "commerce de détail", "commerce électronique",
+           "prêt", "hypothécaire", "paiement", "sécurisé", "sécurité", "authentification",
+           "chiffrement", "conformité", "réglementaire", "réglementé", "infonuagique natif",
+           "tests unitaires", "tests automatisés", "astreinte"],
+}
 MIN_MATCH_RATIO = 0.30  # below this, no source bullet is similar enough to judge
 
 
@@ -104,6 +117,17 @@ def missing_jd_keywords(content: ResumeContent, jd_text: str, source: str) -> tu
     return [k for k in absent if k in in_facts], [k for k in absent if k not in in_facts]
 
 
+def unsupported_claim_terms(content: ResumeContent, source: str, lang: Language) -> list[str]:
+    """Domain/skill terms present in the CV but absent from the candidate's facts."""
+    text, facts = content.all_text().lower(), source.lower()
+    found = []
+    for term in CLAIM_TERMS[lang]:
+        pattern = rf"(?<![\wÀ-ÿ]){re.escape(term)}"
+        if re.search(pattern, text) and not re.search(pattern, facts):
+            found.append(term)
+    return [t for t in found if not any(o != t and t.startswith(o) for o in found)]  # bank covers banking
+
+
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
     """Bullets that open with a leadership verb the matching fact does not use."""
     lead = LEAD_VERBS[lang]
@@ -146,6 +170,10 @@ def run_checks(
         # The OIQ protects the title in English too ("engineer") for work in Quebec.
         findings.append(Finding("blocker", "Headline uses 'Engineer' for a Quebec position.",
                                 "Use 'Developer' (engineer is a protected title in Quebec, OIQ)."))
+    claims = unsupported_claim_terms(content, source, lang)
+    if claims:
+        findings.append(Finding("blocker", f"Claims not supported by your facts: {', '.join(claims)}",
+                                "Remove them; if the posting asks for them, they are gaps, not claims."))
     if master is not None:
         upgrades = leadership_upgrades(content, master, lang)
         if upgrades:

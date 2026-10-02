@@ -687,3 +687,27 @@ def test_deepseek_scores_are_calibrated_to_claude_scale(master: Any) -> None:
     agent._llm, agent._offset = Fixed(), -0.8  # type: ignore[assignment]
     out = agent.review(JD, content(), master, "en", [])
     assert out.scores.average() == 7.2
+
+
+def test_unsupported_claim_terms(master: Any) -> None:
+    from job_assistant.cv.checks import unsupported_claim_terms
+
+    source = master.source_text('en')
+    assert 'healthcare' not in source.lower() and 'secur' not in source.lower()
+    invented = content(summary='Developer for healthcare and insurance platforms, building secured REST APIs.')
+    assert unsupported_claim_terms(invented, source, 'en') == ['healthcare', 'secure']  # stems, no duplicates
+    clean = content(summary='Java developer building Spring Boot microservices and Kafka integrations.')
+    assert unsupported_claim_terms(clean, source, 'en') == []
+    findings = run_checks(invented, 'en', source, JD, 2, master=master)
+    assert any(f.severity == 'blocker' and 'Claims not supported' in f.problem for f in findings)
+    assert not passes(review(9), findings)  # a blocker keeps the CV from being 'ready'
+    # a term the candidate's own facts use is fine
+    with_fact = source + ' Worked on healthcare systems.'
+    assert unsupported_claim_terms(content(summary='Built healthcare services.'), with_fact, 'en') == []
+
+
+def test_unsupported_claim_terms_french(master: Any) -> None:
+    from job_assistant.cv.checks import unsupported_claim_terms
+
+    fr = content(summary='Développeur pour des plateformes bancaires, avec des API sécurisées.')
+    assert unsupported_claim_terms(fr, master.source_text('fr'), 'fr') == ['bancaire', 'sécurisé']
