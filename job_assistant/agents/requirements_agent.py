@@ -6,6 +6,7 @@ the pipeline stops when any MUST-HAVE requirement is classified `not_met`.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -35,6 +36,10 @@ A certification not listed under Certifications is not held.
    - unclear: the information is insufficient to decide. Use this for skills the profile \
 simply does not mention, rather than guessing either way.
 3. Quote the evidence briefly (from the profile or an excerpt), or explain what is missing.
+
+Location, commute, relocation and work mode (on-site, hybrid, remote) are NOT hard blockers: the \
+candidate lives in Toronto, is willing to relocate and accepts any work mode, so mark those \
+met or unclear, never not_met.
 
 Never assume the candidate has something that is not written. Never mark a nice_to_have as \
 must_have to be cautious. Write everything in English."""
@@ -83,6 +88,27 @@ def build_messages(
     ]
 
 
+# Location, commute and work-mode requirements are never hard blockers for this candidate: they
+# live in Toronto, will relocate and accept any work mode (see the profile's situation facts).
+# A model that marks one as not_met is guessing, and a false stop wastes the candidate's time.
+LOGISTICS = re.compile(
+    r"\b(commut\w*|relocat\w*|on-?site|in-?office|office|hybrid|remote|reside\w*|located|based in|"
+    r"work from|days? (a|per) (week|wk)|presenc\w*|sur place|bureau|hybride|télétravail)\b",
+    re.IGNORECASE,
+)
+
+
+def soften_logistics(assessment: RequirementsAssessment) -> RequirementsAssessment:
+    """Downgrade not_met location/work-mode must-haves to unclear (to be verified, not blocking)."""
+    fixed = []
+    for r in assessment.requirements:
+        if r.kind == "must_have" and r.status == "not_met" and LOGISTICS.search(r.requirement):
+            note = "Location/work mode: the candidate lives in Toronto, will relocate and accepts any work mode."
+            r = r.model_copy(update={"status": "unclear", "evidence": f"{note} ({r.evidence})"})
+        fixed.append(r)
+    return assessment.model_copy(update={"requirements": fixed})
+
+
 class RequirementsAgent:
     def __init__(self, llm: BaseChatModel) -> None:
         # json_schema = native structured outputs (forced tool_choice is rejected by newer models).
@@ -93,4 +119,4 @@ class RequirementsAgent:
     ) -> RequirementsAssessment:
         result = self._llm.invoke(build_messages(posting_text, profile, excerpts or []))
         assert isinstance(result, RequirementsAssessment)
-        return result
+        return soften_logistics(result)

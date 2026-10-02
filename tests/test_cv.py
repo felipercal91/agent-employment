@@ -641,3 +641,23 @@ def test_per_role_deepseek_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     reviewer = get_chat_model(s, provider="deepseek", thinking=s.review_thinking)
     assert writer.model_name == "deepseek-v4-pro" and writer.extra_body is None          # reasoning on
     assert reviewer.model_name == "deepseek-flash" and reviewer.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_logistics_requirements_never_stop_the_pipeline() -> None:
+    from job_assistant.agents.requirements_agent import soften_logistics
+
+    a = RequirementsAssessment(company='Acme', role_title='Dev', location='Mississauga', requirements=[
+        Requirement(requirement='Hybrid role: reside within commutable distance to the Mississauga office',
+                    kind='must_have', status='not_met', evidence='Lives in Toronto'),
+        Requirement(requirement='Must be able to relocate to Montreal', kind='must_have', status='not_met', evidence='e'),
+        Requirement(requirement='Certified Product Owner (CPO) certification', kind='must_have', status='not_met', evidence='none'),
+        Requirement(requirement='Remote work experience', kind='nice_to_have', status='not_met', evidence='e'),
+    ])
+    assert a.should_stop
+    fixed = soften_logistics(a)
+    assert [r.status for r in fixed.requirements] == ['unclear', 'unclear', 'not_met', 'not_met']
+    assert [r.requirement[:3] for r in fixed.hard_mismatches] == ['Cer']  # only the real blocker remains
+    assert 'Toronto' in fixed.requirements[0].evidence
+    assert fixed.should_stop  # the CPO requirement still stops it
+    only_logistics = RequirementsAssessment(company='A', role_title='B', location='C', requirements=a.requirements[:2])
+    assert not soften_logistics(only_logistics).should_stop
