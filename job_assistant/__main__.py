@@ -26,7 +26,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     from job_assistant.llm import check_connection
 
     settings = _settings_or_exit()
-    if args.provider == "deepseek":
+    provider = args.provider or settings.writer_provider
+    if provider == "deepseek":
         print(f"Model:      {settings.deepseek_model} (DeepSeek)")
         try:
             reply = check_connection(settings, provider="deepseek")
@@ -43,6 +44,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"Output dir: {settings.output_dir}")
     try:
         reply = check_connection(settings)
+    except ConfigError as e:  # e.g. the Claude API is switched off in .env
+        print(e, file=sys.stderr)
+        return 2
     except AuthenticationError:
         print("Authentication failed: check ANTHROPIC_API_KEY in .env.", file=sys.stderr)
         return 1
@@ -656,6 +660,68 @@ def cmd_postular(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_audit(args: argparse.Namespace) -> int:
+    """Strict second opinion (Claude) on generated CVs, before the candidate sends them."""
+    from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
+    from job_assistant.cv import postular
+    from job_assistant.cv.master import MasterNotFoundError, load_master
+    from job_assistant.llm import get_chat_model
+    from job_assistant.usage import UsageTracker
+
+    settings = _settings_or_exit()
+    path = settings.tracker_path
+    if not path.is_file():
+        print(f"Tracker not found at {path}.", file=sys.stderr)
+        return 2
+    try:
+        master = load_master(settings.data_dir)
+    except MasterNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    rows = [r for r in postular.table(path).rows() if r.get("cv_file")]
+    if args.row is not None:
+        rows = [r for r in rows if r["_row"] == args.row]
+    else:  # default: the CVs the cheap reviewer called ready; those are the ones to double check
+        rows = [r for r in rows if str(r.get("status") or "") == postular.STATUS_READY]
+    if not rows:
+        print("Nothing to audit: no rows with a generated CV (use --row N for a specific one).")
+        return 0
+
+    provider = args.provider or settings.review_provider
+    model = settings.deepseek_model if provider == "deepseek" else settings.model
+    tracker = UsageTracker(model)
+    try:
+        llm = get_chat_model(settings, max_tokens=16000, callbacks=[tracker],
+                             effort=settings.review_effort, provider=provider,
+                             thinking=settings.review_thinking)
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
+    # Scores are calibrated to Claude's scale (DeepSeek reads about 0.8 more generous).
+    reviewer = HRReviewerAgent(llm, PROVIDER_SCORE_OFFSET[provider])
+    print(f"Auditing {len(rows)} CV(s) with {provider} ({model}).")
+    for row in rows:
+        before = tracker.snapshot()
+        try:
+            out = postular.audit_row(row, path=path, master=master, reviewer=reviewer,
+                                     output_dir=settings.output_dir, reviewer_name=provider.capitalize())
+        except TrackerError as e:
+            print(f"  ! {e}", file=sys.stderr)
+            return 2
+        except Exception as e:
+            if _is_account_error(e):
+                print(f"  ! Stopped: the API refused the request ({_short(e)}).", file=sys.stderr)
+                return 2
+            print(f"  ! row {row['_row']} failed: {type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        score = f" | {out.score}/10" if out.score is not None else ""
+        print(f"[row {out.row}] {out.company} – {out.role}: {out.status}{score}")
+        print(f"  {(tracker.snapshot() - before).describe()}")
+        print(f"  {out.report or out.detail}")
+    print(f"\nTotal usage: {tracker.snapshot().describe()}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows consoles default to cp1252; French/Spanish accents need UTF-8.
     for stream in (sys.stdout, sys.stderr):
@@ -666,7 +732,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     check = sub.add_parser("check", help="Verify .env config and the connection to the model provider")
-    check.add_argument("--provider", choices=["anthropic", "deepseek"], default="anthropic")
+    check.add_argument("--provider", choices=["anthropic", "deepseek"], default=None,
+                       help="Provider to test (default: the one used for the CV writer)")
     check.set_defaults(func=cmd_check)
     sub.add_parser("index", help="(Re)build the local index from the data folder").set_defaults(
         func=cmd_index
@@ -734,6 +801,12 @@ def main(argv: list[str] | None = None) -> int:
     post.add_argument("--review-provider", choices=["anthropic", "deepseek"],
                       help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
+
+    audit = sub.add_parser("audit", help="Strict Claude review of generated CVs before you send them")
+    audit.add_argument("--row", type=int, help="Excel row of the CV to audit (default: every 'CV listo')")
+    audit.add_argument("--provider", choices=["anthropic", "deepseek"],
+                       help="Reviewer (default: REVIEW_PROVIDER from .env)")
+    audit.set_defaults(func=cmd_audit)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")
     tracker.add_argument("action", choices=["init", "list", "check"])

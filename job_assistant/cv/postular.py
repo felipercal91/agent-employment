@@ -255,3 +255,112 @@ def process_row(
         links={"cv_file": pdf.resolve().as_uri()},
     )
     return RowOutcome(row["_row"], company, role, status, notes, pdf, result.review.scores.average())
+
+
+# ---- audit: a strict second opinion on CVs the candidate is about to send ---------------------
+
+
+@dataclass
+class AuditOutcome:
+    row: int
+    company: str
+    role: str
+    status: str
+    detail: str
+    score: float | None = None
+    passed: bool = False
+    report: Path | None = None
+
+
+def find_cv_folder(output_dir: Path, cv_file: str) -> Path | None:
+    matches = sorted((output_dir / "cv").glob(f"*/{cv_file}"))
+    return matches[-1].parent if matches else None
+
+
+def render_audit_report(review: Any, findings: list[Any], passed: bool, company: str, role: str,
+                        reviewer_name: str) -> str:
+    s = review.scores
+    lines = [
+        f"# Auditoría ({reviewer_name}): {role} @ {company}",
+        "",
+        f"**Resultado: {'LISTO PARA REVISIÓN FINAL' if passed else 'CON OBSERVACIONES'}** · promedio {s.average()}/10",
+        "",
+        "## Notas",
+        "",
+        review.notes_for_candidate,
+        "",
+        "## Puntajes",
+        "",
+        "| Criterio | Puntaje |",
+        "| --- | --- |",
+        f"| Cobertura de requisitos | {s.requirements_coverage} |",
+        f"| Veracidad | {s.truthfulness} |",
+        f"| Tono humano | {s.human_tone} |",
+        f"| Claridad | {s.clarity} |",
+        f"| Palabras clave ATS | {s.ats_keywords} |",
+        f"| *Tu calce con la vacante (informativo)* | *{s.candidate_fit}* |",
+        "",
+        "## Observaciones",
+        "",
+        *([f"- [{i.severity}] {i.where}: {i.problem} → {i.fix}" + (f'  \n  > "{i.quote}"' if i.quote else "")
+           for i in review.issues]
+          + [f"- [{f.severity}] {f.problem} → {f.fix}" for f in findings] or ["- ninguna"]),
+        "",
+        "## Brechas que no puedes cubrir con la verdad",
+        "",
+        *([f"- {g}" for g in review.gaps_cannot_fix] or ["- ninguna"]),
+        "",
+        "## Preguntas probables en la entrevista",
+        "",
+        *[f"- {q}" for q in review.likely_interview_questions],
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def audit_row(
+    row: dict[str, Any],
+    *,
+    path: Path,
+    master: CVMaster,
+    reviewer: HRReviewerAgent,
+    output_dir: Path,
+    reviewer_name: str = "Claude",
+) -> AuditOutcome:
+    """Re-review a generated CV with `reviewer` and write the verdict into the sheet."""
+    from job_assistant.cv.checks import run_checks
+    from job_assistant.cv.content import ResumeContent
+
+    company, role = str(row.get("company") or ""), str(row.get("role") or "")
+    cv_file = str(row.get("cv_file") or "").strip()
+    folder = find_cv_folder(output_dir, cv_file) if cv_file else None
+    if folder is None or not (folder / "resume_content.json").exists():
+        return AuditOutcome(row["_row"], company, role, "Sin datos",
+                            "No encuentro el CV o su contenido guardado: regenera la fila (Estado = Regenerar).")
+    content = ResumeContent.model_validate_json((folder / "resume_content.json").read_text(encoding="utf-8"))
+    jd = (folder / "job_description.txt").read_text(encoding="utf-8")
+    forced = str(row.get("language") or "").strip().lower()
+    lang: Language = forced if forced in {"en", "fr"} else "en"  # type: ignore[assignment]
+    quebec = detect_market(jd, str(row.get("location") or ""), company).is_quebec
+    try:
+        from pypdf import PdfReader
+
+        pages: int | None = len(PdfReader(str(folder / cv_file)).pages)
+    except Exception:
+        pages = None
+    findings = run_checks(content, lang, master.source_text(lang), jd, pages, quebec, master)
+    review = reviewer.review(jd, content, master, lang, findings)
+
+    from job_assistant.agents.hr_reviewer import passes
+
+    ok = passes(review, findings)
+    report = folder / "audit_claude.md"
+    report.write_text(render_audit_report(review, findings, ok, company, role, reviewer_name), encoding="utf-8")
+    gaps = "; ".join(review.gaps_cannot_fix[:3])
+    notes = f"Auditoría {reviewer_name} {review.scores.average()}/10: {review.notes_for_candidate}"
+    status = STATUS_READY if ok else STATUS_MANUAL
+    table(path).update(row["_row"], {
+        "status": status, "hr_score": review.scores.average(),
+        "hr_notes": notes + (f" Gaps: {gaps}." if gaps else ""),
+    })
+    return AuditOutcome(row["_row"], company, role, status, notes, review.scores.average(), ok, report)

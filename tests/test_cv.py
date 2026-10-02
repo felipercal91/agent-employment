@@ -711,3 +711,39 @@ def test_unsupported_claim_terms_french(master: Any) -> None:
 
     fr = content(summary='Développeur pour des plateformes bancaires, avec des API sécurisées.')
     assert unsupported_claim_terms(fr, master.source_text('fr'), 'fr') == ['bancaire', 'sécurisé']
+
+
+# ---- audit ---------------------------------------------------------------------------------
+
+
+def test_audit_updates_sheet_and_writes_report(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    add_row(sheet_path, link="https://x/audit", notes="n")
+    [row] = postular.pending_rows(sheet_path)
+    out = run(sheet_path, master, tmp_path, row)  # cheap run: reviewer says 9 -> ready
+    assert out.status == postular.STATUS_READY
+    [saved] = postular.table(sheet_path).rows()
+
+    strict = FakeReviewer([review(6, [ReviewIssue(severity="major", where="summary", problem="vague",
+                                                  fix="be specific", quote="Java developer with 12 years")])])
+    result = postular.audit_row(saved, path=sheet_path, master=master, reviewer=strict,  # type: ignore[arg-type]
+                                output_dir=tmp_path / "out")
+    assert result.status == postular.STATUS_MANUAL and result.score == 6.0 and not result.passed
+    report = (result.report or Path()).read_text(encoding="utf-8")
+    assert "Auditoría (Claude)" in report and '> "Java developer with 12 years"' in report
+    [after] = postular.table(sheet_path).rows()
+    assert after["status"] == postular.STATUS_MANUAL and after["hr_score"] == 6.0
+    assert after["hr_notes"].startswith("Auditoría Claude 6.0/10:")
+
+    lenient = FakeReviewer([review(8)])
+    again = postular.audit_row(after, path=sheet_path, master=master, reviewer=lenient,  # type: ignore[arg-type]
+                               output_dir=tmp_path / "out")
+    assert again.passed and postular.table(sheet_path).rows()[0]["status"] == postular.STATUS_READY
+
+
+def test_audit_without_saved_content(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    add_row(sheet_path, link="https://x/old", cv_file="Old_Resume.pdf", status=postular.STATUS_READY)
+    [row] = postular.table(sheet_path).rows()
+    out = postular.audit_row(row, path=sheet_path, master=master, reviewer=FakeReviewer([review(9)]),  # type: ignore[arg-type]
+                             output_dir=tmp_path / "out")
+    assert out.status == "Sin datos" and "Regenerar" in out.detail
+    assert postular.table(sheet_path).rows()[0]["status"] == postular.STATUS_READY  # untouched

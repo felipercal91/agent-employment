@@ -50,6 +50,11 @@ def get_chat_model(
         )
     if provider != "anthropic":
         raise ConfigError(f"Unknown provider '{provider}' (use one of: {', '.join(PROVIDERS)}).")
+    if not settings.anthropic_enabled:
+        raise ConfigError(
+            "The Claude API is disabled (ANTHROPIC_ENABLED=false in .env). "
+            "Use DeepSeek, or set ANTHROPIC_ENABLED=true to allow Claude again."
+        )
     headers = (
         {"anthropic-workspace-id": settings.workspace_id} if settings.workspace_id else None
     )

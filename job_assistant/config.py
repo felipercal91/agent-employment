@@ -37,6 +37,8 @@ class Settings:
     review_effort: str | None = "low"
     # Required only for API keys not scoped to a workspace.
     workspace_id: str | None = None
+    # Safety switch: when False, no code path can call the Claude API (it raises instead).
+    anthropic_enabled: bool = True
     # Optional second provider. Which provider each role uses is chosen per role.
     deepseek_api_key: str | None = field(default=None, repr=False)
     deepseek_model: str = "deepseek-flash"
@@ -108,6 +110,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         followup_cooldown_days=int(os.getenv("FOLLOWUP_COOLDOWN_DAYS", "").strip() or 7),
         review_effort=_effort(os.getenv("REVIEW_EFFORT")),
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
+        anthropic_enabled=_flag(os.getenv("ANTHROPIC_ENABLED")) is not False,
         deepseek_api_key=deepseek_key,
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "").strip() or "deepseek-flash",
         deepseek_thinking=_flag(os.getenv("DEEPSEEK_THINKING")) is True,

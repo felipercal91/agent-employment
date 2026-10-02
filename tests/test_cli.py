@@ -162,3 +162,31 @@ def test_json_mode_puts_schema_in_the_system_prompt() -> None:
     assert human.content == "hi"
     prepended = structured._with_instruction([HumanMessage("hi")])
     assert isinstance(prepended[0], SystemMessage) and len(prepended) == 2
+
+
+def test_claude_api_can_be_switched_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    def load(extra: str) -> Any:
+        for var in ("ANTHROPIC_ENABLED", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "WRITER_PROVIDER", "REVIEW_PROVIDER"):
+            monkeypatch.delenv(var, raising=False)
+        env = tmp_path / "switch.env"
+        env.write_text("ANTHROPIC_API_KEY=k" + chr(10) + "DEEPSEEK_API_KEY=d" + chr(10) + extra, encoding="utf-8")
+        try:
+            return load_settings(env)
+        finally:
+            for var in ("ANTHROPIC_ENABLED", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "WRITER_PROVIDER", "REVIEW_PROVIDER"):
+                os.environ.pop(var, None)
+
+    assert load("").anthropic_enabled is True                         # default: allowed
+    off = load("ANTHROPIC_ENABLED=false" + chr(10))
+    assert off.anthropic_enabled is False
+    with pytest.raises(ConfigError, match="Claude API is disabled"):
+        get_chat_model(off)                                           # any default call is refused
+    with pytest.raises(ConfigError, match="Claude API is disabled"):
+        get_chat_model(off, provider="anthropic", effort="low")
+    assert get_chat_model(off, provider="deepseek") is not None       # DeepSeek keeps working
+    from job_assistant.llm import check_connection
+
+    with pytest.raises(ConfigError):
+        check_connection(off)                                         # no network call is made
