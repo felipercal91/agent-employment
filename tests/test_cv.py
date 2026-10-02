@@ -548,3 +548,15 @@ def test_cv_paths_stay_short_on_windows(tmp_path: Path) -> None:
     assert pdf.parent == folder and pdf.suffix == '.pdf' and 'Resonai' in pdf.name
     short = postular.bounded_paths(tmp_path, TODAY, 'X', 'fr', 'Acme', 'Dev')[1]
     assert short.name == 'X_CV_Acme_Dev.pdf'
+
+
+def test_process_row_saves_content_and_review_json(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    import json
+
+    add_row(sheet_path, link="https://x/json")
+    [row] = postular.pending_rows(sheet_path)
+    out = run(sheet_path, master, tmp_path, row)
+    assert out.cv_path is not None
+    saved = json.loads((out.cv_path.parent / "resume_content.json").read_text(encoding="utf-8"))
+    assert saved["title"] == "Senior Java Developer" and saved["experience"][0]["job_id"] == "bank"
+    assert json.loads((out.cv_path.parent / "hr_review.json").read_text(encoding="utf-8"))["scores"]["clarity"] == 9

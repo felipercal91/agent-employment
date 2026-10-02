@@ -236,6 +236,9 @@ def process_row(
             1,
         )
     (folder / "revision_hr.md").write_text(report, encoding="utf-8")
+    # Machine-readable copies: let a CV be re-reviewed or audited later without regenerating it.
+    (folder / "resume_content.json").write_text(result.content.model_dump_json(indent=2), encoding="utf-8")
+    (folder / "hr_review.json").write_text(result.review.model_dump_json(indent=2), encoding="utf-8")
 
     status = STATUS_READY if result.passed else STATUS_MANUAL
     gaps = "; ".join(result.review.gaps_cannot_fix[:3])
