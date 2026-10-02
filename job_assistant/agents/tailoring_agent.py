@@ -10,6 +10,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from job_assistant.llm import structured_llm
 from job_assistant.agents.requirements_agent import RequirementsAssessment
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.profile.store import Hit
@@ -84,7 +85,7 @@ def build_messages(
 
 class TailoringAgent:
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm.with_structured_output(TailoredCV, method="json_schema")
+        self._llm = structured_llm(llm, TailoredCV)
 
     def tailor(
         self,

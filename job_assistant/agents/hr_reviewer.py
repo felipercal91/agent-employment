@@ -14,6 +14,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, field_validator
 
+from job_assistant.llm import structured_llm
 from job_assistant.cv.checks import Finding
 from job_assistant.cv.content import ResumeContent
 from job_assistant.cv.master import CVMaster
@@ -156,7 +157,7 @@ def build_messages(
 
 class HRReviewerAgent:
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm.with_structured_output(HRReview, method="json_schema")
+        self._llm = structured_llm(llm, HRReview)
 
     def review(
         self, jd_text: str, content: ResumeContent, master: CVMaster, lang: Language,

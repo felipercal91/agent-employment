@@ -11,6 +11,7 @@ import json
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from job_assistant.llm import structured_llm
 from job_assistant.cv.content import ResumeContent
 from job_assistant.cv.master import CVMaster
 from job_assistant.tailoring.market import Language
@@ -115,7 +116,7 @@ def build_messages(
 
 class ResumeWriterAgent:
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm.with_structured_output(ResumeContent, method="json_schema")
+        self._llm = structured_llm(llm, ResumeContent)
 
     def write(
         self,

@@ -20,12 +20,24 @@ def _settings_or_exit() -> Settings:
         raise SystemExit(2)
 
 
-def cmd_check(_: argparse.Namespace) -> int:
+def cmd_check(args: argparse.Namespace) -> int:
     from anthropic import APIConnectionError, APIStatusError, AuthenticationError
 
     from job_assistant.llm import check_connection
 
     settings = _settings_or_exit()
+    if args.provider == "deepseek":
+        print(f"Model:      {settings.deepseek_model} (DeepSeek)")
+        try:
+            reply = check_connection(settings, provider="deepseek")
+        except ConfigError as e:
+            print(e, file=sys.stderr)
+            return 2
+        except Exception as e:
+            print(f"DeepSeek error: {_short(e)}", file=sys.stderr)
+            return 1
+        print(f"DeepSeek replied: {reply!r}")
+        return 0
     print(f"Model:      {settings.model}")
     print(f"Data dir:   {settings.data_dir}")
     print(f"Output dir: {settings.output_dir}")
@@ -532,7 +544,8 @@ def _is_account_error(exc: BaseException) -> bool:
     if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
         return True
     text = str(exc).lower()
-    return "credit balance" in text or "billing" in text or "invalid x-api-key" in text
+    return any(k in text for k in ("credit balance", "billing", "invalid x-api-key", "insufficient balance",
+                                   "authentication fails", "incorrect api key"))
 
 
 def _short(exc: BaseException) -> str:
@@ -549,7 +562,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
     from job_assistant.agents.resume_writer import ResumeWriterAgent
     from job_assistant.cv import postular
     from job_assistant.cv.master import MasterNotFoundError, load_master
-    from job_assistant.usage import UsageTracker
+    from job_assistant.usage import UsageGroup, UsageTracker
     from job_assistant.llm import get_chat_model
     from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
     from job_assistant.profile.store import ProfileStore, persistent_client
@@ -575,9 +588,19 @@ def cmd_postular(args: argparse.Namespace) -> int:
         print("Nothing to do: no rows with Estado empty / Nuevo / Regenerar / Forzar.")
         return 0
 
-    usage_tracker = UsageTracker()
-    llm = get_chat_model(settings, max_tokens=16000, callbacks=[usage_tracker])
-    light = get_chat_model(settings, max_tokens=16000, callbacks=[usage_tracker], effort=settings.review_effort)
+    writer_provider = args.writer_provider or settings.writer_provider
+    review_provider = args.review_provider or settings.review_provider
+    trackers = {"anthropic": UsageTracker(settings.model), "deepseek": UsageTracker(settings.deepseek_model)}
+    usage_tracker = UsageGroup(list(trackers.values()))
+    try:
+        llm = get_chat_model(settings, max_tokens=16000, callbacks=[trackers[writer_provider]],
+                             provider=writer_provider)
+        light = get_chat_model(settings, max_tokens=16000, callbacks=[trackers[review_provider]],
+                               effort=settings.review_effort, provider=review_provider)
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(f"Providers: writer = {writer_provider}, requirements + HR review = {review_provider}")
     agents = dict(
         requirements=RequirementsAgent(light), writer=ResumeWriterAgent(llm), reviewer=HRReviewerAgent(light)
     )
@@ -611,12 +634,12 @@ def cmd_postular(args: argparse.Namespace) -> int:
             continue
         score = f" | HR {out.score}/10" if out.score is not None else ""
         print(f"  {out.status}: {out.company} – {out.role}{score}")
-        print(f"  Usage: {(usage_tracker.snapshot() - before).describe(settings.model)}")
+        print(f"  Usage: {(usage_tracker.snapshot() - before).describe()}")
         if out.cv_path:
             print(f"  CV: {out.cv_path}")
         else:
             print(f"  {out.detail}")
-    print(f"\nTotal usage: {usage_tracker.snapshot().describe(settings.model)}")
+    print(f"\nTotal usage: {usage_tracker.snapshot().describe()}")
     print(f"Done. Results written to sheet '{postular.SHEET}' in {path}.")
     return 1 if failures else 0
 
@@ -630,9 +653,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="job_assistant")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("check", help="Verify .env config and the connection to Claude").set_defaults(
-        func=cmd_check
-    )
+    check = sub.add_parser("check", help="Verify .env config and the connection to the model provider")
+    check.add_argument("--provider", choices=["anthropic", "deepseek"], default="anthropic")
+    check.set_defaults(func=cmd_check)
     sub.add_parser("index", help="(Re)build the local index from the data folder").set_defaults(
         func=cmd_index
     )
@@ -694,6 +717,10 @@ def main(argv: list[str] | None = None) -> int:
     post.add_argument("--row", type=int, help="Process only this Excel row (any status)")
     post.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS,
                       help=f"Writer <-> HR review rounds (default {DEFAULT_MAX_ROUNDS})")
+    post.add_argument("--writer-provider", choices=["anthropic", "deepseek"],
+                      help="Override WRITER_PROVIDER for this run")
+    post.add_argument("--review-provider", choices=["anthropic", "deepseek"],
+                      help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
 
     tracker = sub.add_parser("tracker", help="Inspect the Excel tracker")

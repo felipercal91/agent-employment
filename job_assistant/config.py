@@ -37,6 +37,12 @@ class Settings:
     review_effort: str | None = "low"
     # Required only for API keys not scoped to a workspace.
     workspace_id: str | None = None
+    # Optional second provider. Which provider each role uses is chosen per role.
+    deepseek_api_key: str | None = field(default=None, repr=False)
+    deepseek_model: str = "deepseek-flash"
+    deepseek_thinking: bool = False  # reasoning mode: slower and pricier; off for this workload
+    writer_provider: str = "anthropic"  # the CV writer
+    review_provider: str = "anthropic"  # requirements check + HR reviewer
 
 
 def _resolve_dir(value: str | None, default: str) -> Path:
@@ -53,6 +59,15 @@ def _effort(value: str | None) -> str | None:
     return None  # empty or "default": leave the model's default
 
 
+def _provider(name: str, value: str | None, has_deepseek_key: bool) -> str:
+    provider = (value or "").strip().lower() or "anthropic"
+    if provider not in ("anthropic", "deepseek"):
+        raise ConfigError(f"{name} must be 'anthropic' or 'deepseek' (got '{provider}').")
+    if provider == "deepseek" and not has_deepseek_key:
+        raise ConfigError(f"{name}=deepseek needs DEEPSEEK_API_KEY in .env.")
+    return provider
+
+
 def load_settings(env_file: Path | None = None) -> Settings:
     """Load settings from `.env` (if present) and the process environment.
 
@@ -67,6 +82,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         )
 
     data_dir = _resolve_dir(os.getenv("DATA_DIR"), "data")
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip() or None
     tracker_env = os.getenv("TRACKER_PATH", "").strip()
     return Settings(
         anthropic_api_key=api_key,
@@ -81,4 +97,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
         followup_cooldown_days=int(os.getenv("FOLLOWUP_COOLDOWN_DAYS", "").strip() or 7),
         review_effort=_effort(os.getenv("REVIEW_EFFORT")),
         workspace_id=os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip() or None,
+        deepseek_api_key=deepseek_key,
+        deepseek_model=os.getenv("DEEPSEEK_MODEL", "").strip() or "deepseek-flash",
+        deepseek_thinking=os.getenv("DEEPSEEK_THINKING", "").strip().lower() in ("1", "true", "yes", "on"),
+        writer_provider=_provider("WRITER_PROVIDER", os.getenv("WRITER_PROVIDER"), bool(deepseek_key)),
+        review_provider=_provider("REVIEW_PROVIDER", os.getenv("REVIEW_PROVIDER"), bool(deepseek_key)),
     )

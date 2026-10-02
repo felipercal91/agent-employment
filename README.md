@@ -120,7 +120,9 @@ python -m job_assistant postular --row 5    # solo esa fila, sin importar su est
 
 Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obligatorio que no cumples, se detiene salvo `Forzar`), el **Agente Redactor** escribe el CV con tus hechos fijos (`data/cv_master.toml`) y el **Agente HR** lo revisa (veracidad, cobertura, tono humano, claridad, ATS) hasta 2 rondas. Se conserva la mejor ronda.
 
-**Costo:** cada corrida muestra tokens y costo estimado por vacante y el total. Para gastar menos: la 2.ª ronda solo ocurre si la 1.ª no alcanza promedio 7.0 con veracidad 7+ y sin bloqueos; la revisión de requisitos y el fiscalizador usan razonamiento bajo (`REVIEW_EFFORT` en `.env`: low/medium/high; vacío = default del modelo); el redactor usa el default. Estado `CV listo – revisar` = cumple esa regla; `CV con observaciones` = revisa las observaciones antes de enviar.
+**Costo:** cada corrida muestra tokens y costo estimado por vacante y el total. Para gastar menos: la 2.ª ronda solo ocurre si la 1.ª no alcanza promedio 7.0 con veracidad 7+ y sin bloqueos; la revisión de requisitos y el fiscalizador usan razonamiento bajo (`REVIEW_EFFORT` en `.env`: low/medium/high; vacío = default del modelo); el redactor usa el default. **Proveedores:** por defecto todo corre con Claude. DeepSeek es opcional (más barato): pon `DEEPSEEK_API_KEY` en `.env` y elige por rol `WRITER_PROVIDER` / `REVIEW_PROVIDER` (`anthropic` o `deepseek`), o por corrida con `--writer-provider` / `--review-provider`. `python -m job_assistant check --provider deepseek` prueba la conexión. Ojo: lo que se envía a DeepSeek sale de los servidores de Anthropic (perfil y datos de tu CV).
+
+Estado `CV listo – revisar` = cumple esa regla; `CV con observaciones` = revisa las observaciones antes de enviar.
 
 Salida en `output/cv/<fecha>_<empresa>_<puesto>/`: el PDF (`Felipe_Rodriguez_Resume_...` o `..._CV_...` en francés), `job_description.txt` y `revision_hr.md` (puntajes, observaciones, brechas, preguntas probables de entrevista). La fila se actualiza con Estado, Archivo CV (con link), Puntaje HR y Observaciones.
 

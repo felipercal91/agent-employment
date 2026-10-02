@@ -12,6 +12,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from job_assistant.llm import structured_llm
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.profile.store import Hit
 
@@ -85,7 +86,7 @@ def build_messages(
 class RequirementsAgent:
     def __init__(self, llm: BaseChatModel) -> None:
         # json_schema = native structured outputs (forced tool_choice is rejected by newer models).
-        self._llm = llm.with_structured_output(RequirementsAssessment, method="json_schema")
+        self._llm = structured_llm(llm, RequirementsAssessment)
 
     def check(
         self, posting_text: str, profile: CandidateProfile, excerpts: list[Hit] | None = None

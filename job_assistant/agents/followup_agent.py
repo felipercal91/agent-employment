@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from job_assistant.llm import structured_llm
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.tailoring.market import Language
 
@@ -67,7 +68,7 @@ def build_messages(
 
 class FollowUpAgent:
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm.with_structured_output(FollowUpMessage, method="json_schema")
+        self._llm = structured_llm(llm, FollowUpMessage)
 
     def draft(
         self, target: FollowUpTarget, profile: CandidateProfile, language: Language

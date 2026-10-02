@@ -18,6 +18,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from job_assistant.llm import structured_llm
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.profile.loaders import SourceDocument
 from job_assistant.tailoring.market import Language
@@ -130,7 +131,7 @@ def build_messages(
 
 class QAAgent:
     def __init__(self, llm: BaseChatModel) -> None:
-        self._llm = llm.with_structured_output(FormAnswers, method="json_schema")
+        self._llm = structured_llm(llm, FormAnswers)
 
     def answer(
         self,
