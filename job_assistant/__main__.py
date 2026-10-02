@@ -88,7 +88,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print("The index is empty. Run `python -m job_assistant index` first.")
         return 1
 
-    agent = ProfileAgent(store, get_chat_model(settings))
+    agent = ProfileAgent(store, get_chat_model(settings, provider=settings.review_provider))
     result = agent.ask(args.question, category=args.category)
     print(result.answer)
     if result.grounded:
@@ -130,7 +130,8 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     result = evaluate_posting(
-        posting_text, profile, RequirementsAgent(get_chat_model(settings)), store
+        posting_text, profile,
+        RequirementsAgent(get_chat_model(settings, provider=settings.review_provider)), store
     )
 
     fit = result.fit
@@ -233,13 +234,14 @@ def cmd_tailor(args: argparse.Namespace) -> int:
         return 2
     posting_text = Path(args.posting).read_text(encoding="utf-8")
     cvs = load_documents(settings.data_dir, {"cv"})
-    llm = get_chat_model(settings, max_tokens=16000)
+    writer_llm = get_chat_model(settings, max_tokens=16000, provider=settings.writer_provider)
+    review_llm = get_chat_model(settings, max_tokens=16000, provider=settings.review_provider)
 
     outcome = tailor_posting(
         posting_text,
         profile,
-        RequirementsAgent(llm),
-        TailoringAgent(llm),
+        RequirementsAgent(review_llm),
+        TailoringAgent(writer_llm),
         cvs,
         settings.output_dir,
         store=ProfileStore(persistent_client(settings.vectorstore_dir)),
@@ -301,7 +303,9 @@ def cmd_answer(args: argparse.Namespace) -> int:
         language = detect_market(posting_text, company=args.company or "").language
 
     history = load_documents(settings.data_dir, {"qa_history"})
-    answers, issues = QAAgent(get_chat_model(settings, max_tokens=16000)).answer(
+    answers, issues = QAAgent(
+        get_chat_model(settings, max_tokens=16000, provider=settings.writer_provider)
+    ).answer(
         questions, profile, history, language, posting_text
     )
     company, role = args.company or "unknown", args.role or "application"
@@ -440,7 +444,8 @@ def cmd_followup(args: argparse.Namespace) -> int:
     language = args.lang or followup_language(target, location)
     try:
         folder = draft_followup(
-            target, profile, FollowUpAgent(get_chat_model(settings)), log,
+            target, profile,
+            FollowUpAgent(get_chat_model(settings, provider=settings.writer_provider)), log,
             settings.output_dir, settings.followup_cooldown_days, language,
         )
     except FollowUpBlocked as blocked:
@@ -513,7 +518,7 @@ def _check_candidates(args: argparse.Namespace, settings: Settings, profile: obj
     from job_assistant.pipeline import add_to_tracker, evaluate_posting
     from job_assistant.profile.store import ProfileStore, persistent_client
 
-    agent = RequirementsAgent(get_chat_model(settings))
+    agent = RequirementsAgent(get_chat_model(settings, provider=settings.review_provider))
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     lines = ["", "## Requirements check (top candidates)", ""]
     print(f"\nRequirements check on top {len(candidates)}:")
