@@ -24,11 +24,22 @@ _LANGUAGE_RULES = {
         "'ingénieur' is a protected title in Quebec (OIQ) and the candidate is not a member."
     ),
 }
+# For a candidate whose field has nothing to do with engineering (`protect_engineer_title = false`).
+_FRENCH_GENERIC = (
+    "Write in French as used in Quebec. Translate the candidate's real job titles faithfully "
+    "and never invent or upgrade a title."
+)
 
 QUEBEC_EN_RULE = (
     " This position is in Quebec, where 'engineer' is a protected title (OIQ) in English too: "
     "the headline must say 'Developer' (e.g. 'Senior Java Developer'), never 'Engineer'."
 )
+
+
+def language_rule(lang: Language, protect_engineer_title: bool, quebec: bool) -> str:
+    if not protect_engineer_title:
+        return _LANGUAGE_RULES["en"] if lang == "en" else _FRENCH_GENERIC
+    return _LANGUAGE_RULES[lang] + (QUEBEC_EN_RULE if quebec and lang == "en" else "")
 
 SYSTEM_PROMPT = """You are an expert resume writer for {field} in Canada. You \
 tailor ONE candidate's real CV to ONE job posting.
@@ -49,12 +60,12 @@ dynamic, cutting-edge, seamless, proven track record, innovative solutions, syne
 - No em dashes. Vary sentence length and bullet openings; never start 3 bullets with the same verb.
 - Each bullet: a bold `lead` of 3-8 words that states what was done, then `rest` with the \
 context and the result. One or two lines; no filler adjectives.
-- Mirror the posting's vocabulary only where the facts support it (e.g. say "Spring Boot \
-microservices" when the posting does and the facts show it).
+- Mirror the posting's vocabulary only where the facts support it (e.g. use the posting's own term for a \
+tool or practice when the facts show it).
 - Headline: the candidate's real level and stack, aligned with the posting's title when truthful.
 - Summary: 3-4 sentences, max 90 words, specific to this posting, first person implied (no "I").
-- Competencies: 6-8 capabilities the posting cares about (e.g. "Spring Boot microservices", \
-"SQL Server and PostgreSQL data layers"), not a copy of the Tools line; avoid repeating the \
+- Competencies: 6-8 capabilities the posting cares about (e.g. the posting's key skills \
+and areas, in its own words), not a copy of the Tools line; avoid repeating the \
 same item across competencies, tools and methodologies.
 - Years: "13+ years" describes the whole career. Never attach a long duration to a specific \
 technology unless the job dates in the facts support it (check which job mentions it and when).
@@ -75,13 +86,12 @@ each other job 2-3. Leave out the least relevant ones; do not keep every bullet.
 real scope. Copy a bullet word for word only when it already matches the posting.
 5. The headline and summary must answer the posting's top 3 requirements with evidence from \
 the facts, not generic seniority text.
-Example, for a posting that asks for microservice integrations:
-  Fact: "Worked directly with architects to define microservices-based integration points, built \
-with Spring Boot, between legacy insurance systems and modern analytics tooling, cutting \
-technical decision time by 30%."
-  Good: lead "Defined Spring Boot microservice integrations", rest "with the architects, \
-between legacy insurance systems and analytics tooling, cutting technical decision time by 30%."
-  Bad: "Architected an event-driven platform with Kafka" (new scope and a new technology).
+Example, for a posting that asks for control-testing experience (any field works the same way):
+  Fact: "Worked directly with the audit team to define the testing procedures for the new process, \
+cutting review time by 30%."
+  Good: lead "Defined control-testing procedures", rest "with the audit team for the new process, \
+cutting review time by 30%."
+  Bad: "Led a company-wide transformation program" (new scope: the fact says worked with).
 Keep the verb's real weight: worked/reviewed/tracked/mentored never become led/built/owned.
 
 {language_rule}"""
@@ -127,7 +137,7 @@ def build_messages(
         )
     return [
         SystemMessage(SYSTEM_PROMPT.format(
-            language_rule=_LANGUAGE_RULES[lang] + (QUEBEC_EN_RULE if quebec and lang == "en" else ""),
+            language_rule=language_rule(lang, master.protect_engineer_title(), quebec),
             field=master.field(),
         )),
         HumanMessage("\n\n".join(parts)),

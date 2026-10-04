@@ -35,6 +35,15 @@ class CVMaster:
     contact: dict[str, str]
     raw: dict[str, Any] = field(repr=False)
 
+    def protect_engineer_title(self) -> bool:
+        """Quebec protects 'ingénieur' (OIQ). On by default: only a person who is not an engineer or a
+        developer (e.g. compliance) should turn it off with `[meta] protect_engineer_title = false`."""
+        return bool(self.raw.get("meta", {}).get("protect_engineer_title", True))
+
+    def label(self, key: str, lang: Language, default: str) -> str:
+        """Section label override from `[labels]` (e.g. tools_en = "Systems & Tools:")."""
+        return str(self.raw.get("labels", {}).get(f"{key}_{lang}", default))
+
     def field(self) -> str:
         """The candidate's professional field, used in the prompts (cv_master.toml [meta] field)."""
         return str(self.raw.get("meta", {}).get("field", "senior software developers"))

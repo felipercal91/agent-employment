@@ -664,15 +664,19 @@ def cmd_postular(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
-def cmd_setup(_: argparse.Namespace) -> int:
+def cmd_setup(args: argparse.Namespace) -> int:
     """Create the folders and starter files for a person; safe to run again."""
     from job_assistant.config import PROJECT_ROOT, profile_dir
     from job_assistant.setup_profile import scaffold
 
     settings = _settings_or_exit()
     who = f"profile '{settings.profile}'" if settings.profile else "the default profile"
+    examples = PROJECT_ROOT / "examples" / (args.template or "")
+    if not examples.is_dir():
+        print(f"Unknown template '{args.template}'.", file=sys.stderr)
+        return 2
     result = scaffold(
-        settings.data_dir, settings.tracker_path, PROJECT_ROOT / "examples",
+        settings.data_dir, settings.tracker_path, examples,
         profile_dir(settings.profile) / ".env" if settings.profile else None,
     )
     flag = f"--profile {settings.profile} " if settings.profile else ""
@@ -765,7 +769,10 @@ def main(argv: list[str] | None = None) -> int:
                         "without it, the default person. Same as setting JOB_ASSISTANT_PROFILE.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("setup", help="Create the folders and starter files for a person").set_defaults(func=cmd_setup)
+    setup = sub.add_parser("setup", help="Create the folders and starter files for a person")
+    setup.add_argument("--template", choices=["compliance"],
+                       help="Starter files for a field other than software development")
+    setup.set_defaults(func=cmd_setup)
 
     check = sub.add_parser("check", help="Verify .env config and the connection to the model provider")
     check.add_argument("--provider", choices=["anthropic", "deepseek"], default=None,

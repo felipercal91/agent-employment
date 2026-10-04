@@ -29,8 +29,9 @@ invent an interview, a promise, a deadline or a detail that is not in the contex
 _LANGUAGE_RULES = {
     "en": "Write in English.",
     "fr": (
-        "Write in French as used in Quebec (vouvoiement). If the candidate's title appears, "
-        "use 'Développeur', never 'Ingénieur'."
+        "Write in French as used in Quebec (vouvoiement). If the candidate's title appears, translate "
+        "it faithfully (e.g. 'Developer' becomes 'Développeur') and never upgrade it to 'Ingénieur', "
+        "a protected title in Quebec."
     ),
 }
 

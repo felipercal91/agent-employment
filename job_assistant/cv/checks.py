@@ -128,6 +128,28 @@ def unsupported_claim_terms(content: ResumeContent, source: str, lang: Language)
     return [t for t in found if not any(o != t and t.startswith(o) for o in found)]  # bank covers banking
 
 
+# A certification the candidate is still working toward must never be written as obtained.
+IN_PROGRESS = re.compile(r"in progress|in process|en cours|candidate|pursuing|studying|expected|currently", re.I)
+CERTIFICATIONS = ("PMP", "CAMS", "CFE", "CRCM", "CIPP", "FRM", "CISA", "CISSP", "CPA", "CFA")
+_SEGMENT = re.compile(r"[.;•\n]")
+
+
+def _segments_with(text: str, keyword: str) -> list[str]:
+    return [seg for seg in _SEGMENT.split(text) if keyword in extract_keywords(seg)]
+
+
+def in_progress_certification_claims(content: ResumeContent, source: str) -> list[str]:
+    """Certifications the facts say are in progress, but the CV text presents without that caveat."""
+    flagged = []
+    for cert in CERTIFICATIONS:
+        in_facts = _segments_with(source, cert)
+        if not in_facts or not all(IN_PROGRESS.search(seg) for seg in in_facts):
+            continue  # not in the facts, or held: other checks (or nothing) apply
+        if any(not IN_PROGRESS.search(seg) for seg in _segments_with(content.all_text(), cert)):
+            flagged.append(cert)
+    return flagged
+
+
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
     """Bullets that open with a leadership verb the matching fact does not use."""
     lead = LEAD_VERBS[lang]
@@ -161,15 +183,20 @@ def run_checks(
     if techs:
         findings.append(Finding("blocker", f"Technologies not in your facts: {', '.join(techs)}",
                                 "Remove them; list them as gaps instead."))
-    if lang == "fr":
+    protect_title = True if master is None else master.protect_engineer_title()
+    if protect_title and lang == "fr":
         body = "\n".join([content.title, content.summary, *(b.text() for j in content.experience for b in j.bullets)])
         if protected_title_mentions(body) or re.search(r"\bengineer\b", content.title, re.I):
             findings.append(Finding("blocker", "Uses 'Ingénieur'/'Engineer' as a title in a Quebec CV.",
                                     "Use 'Développeur' (protected title, OIQ)."))
-    elif quebec and re.search(r"\bengineer", content.title, re.I):
+    elif protect_title and lang == "en" and quebec and re.search(r"\bengineer", content.title, re.I):
         # The OIQ protects the title in English too ("engineer") for work in Quebec.
         findings.append(Finding("blocker", "Headline uses 'Engineer' for a Quebec position.",
                                 "Use 'Developer' (engineer is a protected title in Quebec, OIQ)."))
+    unfinished = in_progress_certification_claims(content, source)
+    if unfinished:
+        findings.append(Finding("blocker", f"Certification still in progress, written as obtained: {', '.join(unfinished)}",
+                                "Say 'in progress' or leave it out; the facts say it is not finished."))
     claims = unsupported_claim_terms(content, source, lang)
     if claims:
         findings.append(Finding("blocker", f"Claims not supported by your facts: {', '.join(claims)}",

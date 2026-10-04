@@ -1,0 +1,35 @@
+# Starter for a COMPLIANCE / risk professional. Fill with REAL data only: skills are matched against
+# job postings, so list every tool, regulation and practice you can defend in an interview.
+
+name = "Your Name"          # replace: while it says "Your Name" the system refuses to run
+title = "Compliance Analyst"
+years_experience = 6
+
+skills = [
+  "AML", "KYC", "Customer due diligence", "Enhanced due diligence", "Transaction monitoring",
+  "Sanctions screening", "Suspicious transaction reporting", "FINTRAC", "Regulatory reporting",
+  "Risk assessment", "Policies and procedures", "Internal controls", "Investigations",
+  "Complaints handling", "Excel",
+]
+
+# Only certifications you actually HOLD (CAMS, CFE, CRCM, CIPP...). In progress goes in [situation].
+certifications = []
+
+education = ["Bachelor of Law"]
+spoken_languages = ["English (C1)", "French (B2)", "Spanish (native)"]
+work_authorization = "Permanent resident of Canada"
+locations = ["Toronto", "Montreal", "Remote (Canada)"]
+# true = a posting's location / work-mode requirement never stops a CV (you relocate, any mode)
+flexible_location = false
+
+# Facts used to draft application-form answers. Leave a value empty if unknown:
+# the assistant will ask you instead of guessing.
+[situation]
+employment_status = "Currently employed"
+employment_end_reason = "employed"      # layoff | resignation | contract_end | employed
+notice_period = "Two weeks"
+salary_expectation_cad = ""
+relocation = ""
+remote_preference = ""
+requires_sponsorship = "No"
+certifications_in_progress = ""

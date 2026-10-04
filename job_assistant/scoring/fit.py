@@ -77,7 +77,59 @@ VOCABULARY: dict[str, list[str]] = {
     "Machine learning": ["machine learning"],
 }
 
-_TOKEN = r"(?<![\w.#+-]){}(?![\w#+-]|\.\w)"
+# Compliance / risk / regulatory vocabulary. Always active, for every profile: it lets the
+# "technologies not in your facts" check catch an invented regulation, tool or certification in
+# a compliance CV exactly as it catches an invented framework in a developer CV.
+COMPLIANCE_VOCABULARY: dict[str, list[str]] = {
+    "AML": ["aml", "anti-money laundering", "anti money laundering", "money laundering",
+            "lutte contre le blanchiment", "blanchiment d'argent", "lcbc"],
+    "KYC": ["kyc", "know your customer", "connaissance du client"],
+    "CDD/EDD": ["cdd", "edd", "customer due diligence", "enhanced due diligence", "due diligence"],
+    "Sanctions screening": ["sanctions", "sanctions screening", "ofac", "watchlist", "watch list"],
+    "Transaction monitoring": ["transaction monitoring", "surveillance des transactions"],
+    "Suspicious transaction reporting": ["str", "sar", "suspicious transaction", "suspicious activity"],
+    "FINTRAC": ["fintrac", "cetrf"],
+    "PCMLTFA": ["pcmltfa", "lrpcfat"],
+    "OSFI": ["osfi", "bsif"],
+    "Regulatory reporting": ["regulatory reporting", "regulatory filings", "déclarations réglementaires"],
+    "Regulatory change management": ["regulatory change", "regulatory horizon"],
+    "Privacy / data protection": ["pipeda", "gdpr", "privacy", "data protection", "loi 25", "law 25",
+                                  "protection des renseignements"],
+    "SOX / internal controls": ["sox", "sarbanes-oxley", "internal controls", "internal control",
+                                "contrôles internes"],
+    "Basel": ["basel", "bâle"],
+    "FATCA/CRS": ["fatca", "crs"],
+    "Anti-bribery": ["fcpa", "cfpoa", "anti-bribery", "anti-corruption", "abac"],
+    "Fraud prevention": ["fraud prevention", "fraud detection", "financial crime", "financial crimes",
+                         "criminalité financière"],
+    "Internal audit": ["internal audit", "audit interne", "audit"],
+    "Risk assessment": ["risk assessment", "risk assessments", "risk-based approach", "évaluation des risques"],
+    "Third-party risk": ["third-party risk", "third party risk", "vendor risk", "risque tiers"],
+    "Operational risk": ["operational risk", "risque opérationnel"],
+    "Policy & procedures": ["policies and procedures", "policy development", "politiques et procédures"],
+    "Investigations": ["investigations", "enquêtes"],
+    "Complaints handling": ["complaints handling", "complaint management", "gestion des plaintes"],
+    "ISO 27001 / SOC 2": ["iso 27001", "soc 2", "soc2"],
+    "Actimize": ["actimize"],
+    "FircoSoft": ["fircosoft", "firco"],
+    "World-Check": ["world-check", "worldcheck", "world check"],
+    "LexisNexis": ["lexisnexis", "lexis nexis", "bridger"],
+    "GRC tools": ["archer", "servicenow grc", "metricstream", "onetrust", "grc"],
+    # Certifications: a CV must never claim one that is not in the candidate's facts.
+    "PMP": ["pmp"],
+    "CAMS": ["cams"],
+    "CFE": ["cfe"],
+    "CRCM": ["crcm"],
+    "CIPP": ["cipp", "cipp/c"],
+    "FRM": ["frm"],
+    "CISA": ["cisa"],
+    "CISSP": ["cissp"],
+    "CPA": ["cpa"],
+    "CFA": ["cfa"],
+}
+VOCABULARY.update(COMPLIANCE_VOCABULARY)
+
+_TOKEN =r"(?<![\w.#+-]){}(?![\w#+-]|\.\w)"
 _PATTERNS: dict[str, re.Pattern[str]] = {
     canonical: re.compile(
         "|".join(_TOKEN.format(re.escape(alias)) for alias in sorted(aliases, key=len, reverse=True)),

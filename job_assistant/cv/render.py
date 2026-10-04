@@ -54,7 +54,10 @@ def _e(text: str) -> str:
 
 
 def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
-    L = LABELS[lang]
+    L = dict(LABELS[lang])
+    for key in ("tools", "methods"):
+        L[key] = master.label(key, lang, L[key])
+    L = {k: _e(v) for k, v in L.items()}  # labels reach the HTML: escape the & in "Tools & Technology"
     c = master.contact
     contact = " | ".join(_e(c[k]) for k in ("location", "phone", "email", "linkedin") if c.get(k))
     jobs = {j.id: j for j in master.jobs(lang)}

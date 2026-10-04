@@ -87,8 +87,9 @@ true. The candidate decides those personally.
 _LANGUAGE_RULES = {
     "en": "Write the answers in English.",
     "fr": (
-        "Write the answers in French as used in Quebec. If a job title is needed, use "
-        "'Développeur', never 'Ingénieur'."
+        "Write the answers in French as used in Quebec. If a job title is needed, translate the "
+        "candidate's own title faithfully (e.g. 'Developer' becomes 'Développeur') and never upgrade "
+        "it to 'Ingénieur', a protected title in Quebec."
     ),
 }
 

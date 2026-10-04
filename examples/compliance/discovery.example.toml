@@ -1,0 +1,37 @@
+# Company job boards for compliance / risk roles, read through public ATS APIs (read-only).
+# Banks, insurers and regulators mostly use Workday/Taleo: save their postings into data/inbox/.
+# Find a company's ATS from its careers page URL:
+#   job-boards.greenhouse.io/<token> -> greenhouse | jobs.lever.co/<token> -> lever | jobs.ashbyhq.com/<token> -> ashby
+
+[[boards]]
+company = "Wealthsimple"
+ats = "ashby"
+token = "wealthsimple"
+
+[[boards]]
+company = "KOHO"
+ats = "ashby"
+token = "koho"
+
+[[boards]]
+company = "Neo Financial"
+ats = "ashby"
+token = "neofinancial"
+
+[[boards]]
+company = "Lightspeed"
+ats = "ashby"
+token = "lightspeedhq"
+
+[[boards]]
+company = "Faire"
+ats = "greenhouse"
+token = "faire"
+
+[filters]
+title_include = ['compliance', 'conformit', '\baml\b', '\bkyc\b', 'financial crime', 'sanctions', 'regulatory', 'r[ée]glementaire', 'risk', 'risque', 'privacy', 'audit', 'fraud', 'fraude', 'due diligence']
+title_exclude = ['\bintern', '\bstagiaire\b', '\bco-?op\b', 'new grad', '\bdirector\b', '\bdirecteur', '\bchief\b', '\bvp\b']
+# locations: omit to use the defaults (Toronto/GTA, London ON, Montreal/Laval, Quebec City, remote Canada)
+min_fit = 30
+# Postings are not filtered by technology keywords for this field.
+require_any_keyword = []

@@ -74,6 +74,13 @@ _LANGUAGE_RULES = {
         "'Ingénieur' or 'Engineer' (protected title in Quebec)."
     ),
 }
+_FRENCH_GENERIC = "The CV is in Quebec French: also check the French quality."
+
+
+def language_rule(lang: Language, master: CVMaster) -> str:
+    if lang == "fr" and not master.protect_engineer_title():
+        return _FRENCH_GENERIC
+    return _LANGUAGE_RULES[lang]
 
 
 class Scores(BaseModel):
@@ -176,7 +183,7 @@ def build_messages(
     auto = "\n".join(f"- [{f.severity}] {f.problem}" for f in findings) or "- none"
     day = (today or date.today()).isoformat()
     return [
-        SystemMessage(SYSTEM_PROMPT.format(language_rule=_LANGUAGE_RULES[lang], today=day,
+        SystemMessage(SYSTEM_PROMPT.format(language_rule=language_rule(lang, master), today=day,
                                            field=master.field())),
         HumanMessage(
             f"<job_posting>\n{jd_text}\n</job_posting>\n\n"

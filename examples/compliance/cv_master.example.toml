@@ -1,0 +1,88 @@
+# Starter for a COMPLIANCE / risk professional. Replace everything with the real facts of the CV.
+# Fixed facts the CV writer can never change; bullets are source material it may rephrase, always
+# keeping every number and the real scope. Copy each bullet from the CV; do not embellish.
+
+[contact]
+name = "ALEX SAMPLE"          # replace: while it says ALEX SAMPLE the system refuses to generate CVs
+location = "Toronto, ON, Canada"
+phone = "(000) 000-0000"
+email = "alex@example.com"
+linkedin = "linkedin.com/in/alex-sample"
+file_prefix = "Alex_Sample"
+
+# Your field, used in the writer and reviewer prompts. protect_engineer_title = false because this is
+# not an engineering profession (the Quebec 'ingénieur' title rule is only for developers/engineers).
+[meta]
+field = "compliance professionals"
+protect_engineer_title = false
+
+# Optional: rename the two skills sections of the CV.
+[labels]
+tools_en = "Systems & Tools:"
+methods_en = "Regulatory Frameworks & Methods:"
+tools_fr = "Systèmes et outils :"
+methods_fr = "Cadres réglementaires et méthodes :"
+
+[default_title]
+en = "Compliance Analyst"
+fr = "Analyste en conformité"
+
+[[experience]]
+id = "bank"
+company = "Sample Bank"
+location = "Toronto, ON"
+title_en = "Compliance Analyst"
+title_fr = "Analyste en conformité"
+dates_en = "January 2020 – June 2026"
+dates_fr = "Janvier 2020 – Juin 2026"
+bullets_en = [
+  "Reviewed 120 high-risk customer files per month under the bank's KYC and enhanced due diligence procedures.",
+  "Investigated transaction monitoring alerts and filed suspicious transaction reports with FINTRAC.",
+  "Updated 15 AML policies and procedures after regulatory changes and trained 200 branch employees.",
+]
+bullets_fr = [
+  "A examiné 120 dossiers de clients à risque élevé par mois selon les procédures de connaissance du client et de diligence raisonnable accrue de la banque.",
+  "A enquêté sur les alertes de surveillance des transactions et déposé des déclarations d'opérations douteuses auprès du CANAFE.",
+  "A mis à jour 15 politiques et procédures de lutte contre le blanchiment d'argent après des changements réglementaires et formé 200 employés de succursale.",
+]
+
+[[experience]]
+id = "insurer"
+company = "Sample Insurance"
+location = "Santiago, Chile"
+location_fr = "Santiago, Chili"
+title_en = "Compliance Officer"
+title_fr = "Agent de conformité"
+dates_en = "March 2016 – December 2019"
+dates_fr = "Mars 2016 – Décembre 2019"
+bullets_en = [
+  "Tested internal controls across 8 business units and reported findings to the audit committee.",
+  "Handled customer complaints and cut the average resolution time by 25%.",
+]
+bullets_fr = [
+  "A testé les contrôles internes de 8 unités d'affaires et présenté les constats au comité d'audit.",
+  "A traité les plaintes de clients et réduit le délai moyen de résolution de 25 %.",
+]
+
+[education]
+en = ["Bachelor of Law — Sample University — December 2015"]
+fr = ["Baccalauréat en droit — Sample University — décembre 2015"]
+
+[certifications]
+en = "CAMS (in progress)"
+fr = "CAMS (en cours)"
+
+[languages]
+en = "English (C1), French (B2), Spanish (native)"
+fr = "Anglais (C1), français (B2), espagnol (langue maternelle)"
+
+# The writer may reorder and select from these lists, never add to them.
+[skills]
+tools_en = ["Actimize", "World-Check", "Excel", "Power BI"]
+tools_fr = ["Actimize", "World-Check", "Excel", "Power BI"]
+methodologies_en = ["AML", "KYC", "Enhanced due diligence", "Transaction monitoring", "Risk assessment", "Internal controls"]
+methodologies_fr = ["Lutte contre le blanchiment d'argent", "Connaissance du client", "Diligence raisonnable accrue", "Surveillance des transactions", "Évaluation des risques", "Contrôles internes"]
+
+[summary_facts]
+en = "Compliance analyst with 10 years of experience in AML, KYC and regulatory reporting for banking and insurance, including transaction monitoring investigations and policy updates."
+fr = "Analyste en conformité comptant 10 ans d'expérience en lutte contre le blanchiment d'argent, connaissance du client et déclarations réglementaires dans la banque et l'assurance, incluant des enquêtes de surveillance des transactions et la mise à jour de politiques."

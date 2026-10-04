@@ -223,3 +223,104 @@ def test_professional_field_reaches_the_prompts() -> None:
     empty = ResumeContent(title="t", summary="s", competencies=[], experience=[], tools=[], methodologies=[])
     assert "screens CVs for registered nurses" in review_messages("jd", empty, nurse, "en", [])[0].content
     assert "{field}" not in review_messages("jd", empty, default, "en", [])[0].content
+
+
+# ---- compliance profile ---------------------------------------------------------------------------
+
+
+def test_compliance_starter_files_load_and_render(tmp_path: Path) -> None:
+    from job_assistant.cv.content import Bullet, JobBullets, ResumeContent
+    from job_assistant.cv.render import build_html
+
+    src = EXAMPLES / "compliance"
+    (tmp_path / "cv_master.toml").write_bytes((src / "cv_master.example.toml").read_bytes())
+    (tmp_path / "profile.toml").write_bytes((src / "profile.example.toml").read_bytes())
+    m = load_master(tmp_path, allow_example=True)
+    assert m.field() == "compliance professionals" and m.protect_engineer_title() is False
+    assert [j.id for j in m.jobs("fr")] == ["bank", "insurer"] and m.jobs("fr")[1].location == "Santiago, Chili"
+    assert m.label("tools", "en", "x") == "Systems & Tools:"
+    assert load_candidate_profile(tmp_path, allow_example=True).title == "Compliance Analyst"
+    jobs = [JobBullets(job_id=j.id, bullets=[Bullet(lead="", rest=b) for b in j.bullets]) for j in m.jobs("en")]
+    content = ResumeContent(title="Compliance Analyst", summary="s", competencies=["AML"], experience=jobs,
+                            tools=m.tools("en"), methodologies=m.methodologies("en"))
+    html = build_html(m, content, "en")
+    assert "Systems &amp; Tools:" in html and "Regulatory Frameworks &amp; Methods:" in html
+    assert "Tools &amp; Technology:" not in html
+    assert "Systèmes et outils :" in build_html(m, content, "fr")
+
+
+def test_french_title_rule_is_off_for_compliance(tmp_path: Path) -> None:
+    from job_assistant.agents.hr_reviewer import language_rule as review_rule
+    from job_assistant.agents.resume_writer import language_rule as writer_rule
+    from job_assistant.cv.checks import run_checks
+    from job_assistant.cv.content import Bullet, JobBullets, ResumeContent
+
+    src = EXAMPLES / "compliance"
+    (tmp_path / "cv_master.toml").write_bytes((src / "cv_master.example.toml").read_bytes())
+    compliance = load_master(tmp_path, allow_example=True)
+    dev_dir = tmp_path / "dev"
+    dev_dir.mkdir()
+    (dev_dir / "cv_master.toml").write_bytes((EXAMPLES / "cv_master.example.toml").read_bytes())
+    developer = load_master(dev_dir, allow_example=True)
+
+    assert "Développeur" not in writer_rule("fr", compliance.protect_engineer_title(), True)
+    assert "Développeur" in writer_rule("fr", developer.protect_engineer_title(), True)
+    assert "Ingénieur" not in review_rule("fr", compliance) and "Ingénieur" in review_rule("fr", developer)
+
+    c = ResumeContent(title="Ingénieur en conformité", summary="Ingénieur de la conformité.", competencies=[],
+                      experience=[JobBullets(job_id="bank", bullets=[Bullet(lead="A revu", rest="des dossiers.")])],
+                      tools=[], methodologies=[])
+    flagged = [f.problem for f in run_checks(c, "fr", developer.source_text("fr"), "", 2, True, developer)]
+    assert any("Ingénieur" in p for p in flagged)  # developers: still blocked
+    quiet = [f.problem for f in run_checks(c, "fr", compliance.source_text("fr"), "", 2, True, compliance)]
+    assert not any("Ingénieur" in p for p in quiet)  # compliance: not our rule to enforce
+
+
+def test_compliance_vocabulary_blocks_invented_credentials(tmp_path: Path) -> None:
+    from job_assistant.cv.checks import in_progress_certification_claims, run_checks, ungrounded_technologies
+    from job_assistant.cv.content import ResumeContent
+    from job_assistant.scoring.fit import extract_keywords
+
+    (tmp_path / "cv_master.toml").write_bytes((EXAMPLES / "compliance" / "cv_master.example.toml").read_bytes())
+    m = load_master(tmp_path, allow_example=True)
+    src = m.source_text("en")
+    assert {"AML", "KYC", "FINTRAC", "Actimize", "World-Check"} <= set(extract_keywords(src))
+
+    def cv(summary: str) -> ResumeContent:
+        return ResumeContent(title="Compliance Analyst", summary=summary, competencies=[], experience=[],
+                             tools=[], methodologies=[])
+
+    invented = cv("CAMS certified analyst with OSFI and GDPR experience, using Fircosoft and Archer.")
+    assert set(ungrounded_technologies(invented, src)) >= {"OSFI", "Privacy / data protection", "FircoSoft", "GRC tools"}
+    assert "CAMS" not in ungrounded_technologies(invented, src)  # CAMS is in her facts, but only as in progress
+    assert in_progress_certification_claims(invented, src) == ["CAMS"]  # ...so writing "CAMS certified" is blocked
+    assert any(f.severity == "blocker" for f in run_checks(invented, "en", src, "", 2, master=m))
+    honest = cv("Compliance analyst with AML and KYC experience, filing reports with FINTRAC, using Actimize.")
+    assert ungrounded_technologies(honest, src) == []
+    caveated = cv("Compliance analyst working toward CAMS (in progress), with AML and KYC experience.")
+    assert in_progress_certification_claims(caveated, src) == []  # saying it is in progress is fine
+    held = src.replace("CAMS (in progress)", "CAMS")
+    assert in_progress_certification_claims(invented, held) == []  # once she holds it, claiming it is fine
+
+
+def test_setup_with_the_compliance_template(root: Path, monkeypatch: pytest.MonkeyPatch,
+                                             capsys: pytest.CaptureFixture[str]) -> None:
+    from job_assistant.__main__ import main
+
+    shutil_src = EXAMPLES
+    (root / "examples" / "compliance").mkdir(parents=True)
+    for f in shutil_src.glob("*.toml"):
+        (root / "examples" / f.name).write_bytes(f.read_bytes())
+    for f in (shutil_src / "compliance").glob("*.toml"):
+        (root / "examples" / "compliance" / f.name).write_bytes(f.read_bytes())
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds")
+    assert main(["--profile", "novia", "setup", "--template", "compliance"]) == 0
+    data = root / "profiles" / "novia" / "data"
+    assert 'field = "compliance professionals"' in (data / "cv_master.toml").read_text(encoding="utf-8")
+    assert "Compliance Analyst" in (data / "profile.toml").read_text(encoding="utf-8")
+    assert "compliance" in (data / "discovery.toml").read_text(encoding="utf-8")
+    capsys.readouterr()
+    os.environ.pop("JOB_ASSISTANT_PROFILE", None)  # one process per command in real use; here it would stick
+    assert main(["setup"]) == 0  # the default person's setup uses the generic examples, not compliance
+    default_profile = (root / "data" / "profile.toml").read_text(encoding="utf-8")
+    assert "Java" in default_profile and "Compliance Analyst" not in default_profile
