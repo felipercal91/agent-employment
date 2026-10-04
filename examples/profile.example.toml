@@ -17,6 +17,8 @@ education = ["B.Sc. Computer Engineering"]
 spoken_languages = ["Spanish (native)", "English (professional)", "French (intermediate)"]
 work_authorization = "Permanent resident of Canada"
 locations = ["Toronto", "Montreal", "Remote (Canada)"]
+# true = a posting's location / work-mode requirement never stops a CV (you relocate, any mode)
+flexible_location = false
 
 # Facts used to draft application-form answers. Leave a value empty if unknown:
 # the assistant will ask you instead of guessing.

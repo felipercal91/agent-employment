@@ -39,7 +39,7 @@ def master_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def master(master_dir: Path) -> Any:
-    return load_master(master_dir)
+    return load_master(master_dir, allow_example=True)
 
 
 def content(**kw: Any) -> ResumeContent:

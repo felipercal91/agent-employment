@@ -35,7 +35,7 @@ def profile() -> CandidateProfile:
 
 def test_load_example_profile(tmp_path: Path) -> None:
     (tmp_path / "profile.toml").write_bytes((EXAMPLES / "profile.example.toml").read_bytes())
-    loaded = load_candidate_profile(tmp_path)
+    loaded = load_candidate_profile(tmp_path, allow_example=True)
     assert loaded.years_experience == 13
     assert "Spring Boot" in loaded.skills
     assert loaded.certifications == []

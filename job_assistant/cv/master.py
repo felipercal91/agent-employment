@@ -35,6 +35,10 @@ class CVMaster:
     contact: dict[str, str]
     raw: dict[str, Any] = field(repr=False)
 
+    def field(self) -> str:
+        """The candidate's professional field, used in the prompts (cv_master.toml [meta] field)."""
+        return str(self.raw.get("meta", {}).get("field", "senior software developers"))
+
     def default_title(self, lang: Language) -> str:
         return str(self.raw["default_title"][lang])
 
@@ -84,10 +88,22 @@ class CVMaster:
         return "\n".join(parts)
 
 
-def load_master(data_dir: Path) -> CVMaster:
+PLACEHOLDER_NAME = "ALEX SAMPLE"  # the name used by examples/cv_master.example.toml
+
+
+class MasterPlaceholderError(MasterNotFoundError):
+    """cv_master.toml still holds the example person's data."""
+
+
+def load_master(data_dir: Path, allow_example: bool = False) -> CVMaster:
     path = data_dir / MASTER_FILENAME
     if not path.is_file():
         raise MasterNotFoundError(f"{path} not found: it holds the fixed facts of your CV.")
     with path.open("rb") as f:
         raw = tomllib.load(f)
+    if raw["contact"].get("name") == PLACEHOLDER_NAME and not allow_example:
+        raise MasterPlaceholderError(
+            f"{path} still has the example data ({PLACEHOLDER_NAME}). Replace it with the real CV facts "
+            "before generating CVs: otherwise the CV would carry someone else's employers and dates."
+        )
     return CVMaster(contact=dict(raw["contact"]), raw=raw)

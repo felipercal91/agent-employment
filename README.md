@@ -130,6 +130,23 @@ Salida en `output/cv/<fecha>_<empresa>_<puesto>/`: el PDF (`Felipe_Rodriguez_Res
 
 Idioma: el del posting (o la columna Idioma). En Quebec el titular nunca dice Engineer/Ingénieur.
 
+## Otra persona en el mismo computador (perfiles)
+
+No se duplica el proyecto: hay **un solo código y una carpeta de datos por persona**. Tu perfil es el de siempre (`data/`, `output/`); cada persona adicional vive en `profiles/<nombre>/` (ignorado por git) con su propio CV, Excel, índice y resultados.
+
+```powershell
+jobs.cmd novia setup        # crea sus carpetas y archivos de partida (seguro repetirlo: no pisa lo editado)
+jobs.cmd novia index        # indexa sus CVs
+jobs.cmd novia postular     # genera sus CVs desde su hoja Postular
+```
+
+`jobs.cmd <perfil> <comando>` es lo mismo que `python -m job_assistant --profile <perfil> <comando>`. Sin `--profile` se trabaja con tus datos; con él, la terminal escribe `[profile: nombre]` para que se vea de quién son los datos.
+
+- **Aislamiento:** un perfil nunca hereda las rutas del `.env` compartido (`DATA_DIR`, `TRACKER_PATH`...): solo las suyas. Las keys y los modelos sí se comparten; ella puede usar su propia key en `profiles/<nombre>/.env`.
+- **Datos de ejemplo:** el sistema se niega a generar CVs mientras `cv_master.toml` o `profile.toml` conserven el ejemplo (ALEX SAMPLE / Your Name).
+- **Qué completa ella:** `profile.toml` (incluye `flexible_location = true/false`: si acepta mudarse y cualquier modalidad) y `cv_master.toml` (empleos, fechas, educación; en `[meta] field` su profesión, que se usa en los prompts).
+- **Privacidad:** con DeepSeek, sus datos salen de los servidores de Anthropic; debe estar de acuerdo.
+
 La primera vez descarga el modelo de embeddings local (~80 MB). El índice queda en `vectorstore/` (gitignored).
 
 ## Estructura

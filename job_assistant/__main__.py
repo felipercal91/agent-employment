@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from collections import Counter
 
-from job_assistant.config import ConfigError, Settings, load_settings
+from job_assistant.config import PROFILE_ENV, ConfigError, Settings, load_settings
 from job_assistant.cv.pipeline import DEFAULT_MAX_ROUNDS
 from job_assistant.tracker.excel import Tracker, TrackerError, TrackerRow
 
 
 def _settings_or_exit() -> Settings:
     try:
-        return load_settings()
+        settings = load_settings()
     except ConfigError as e:
         print(f"Config error: {e}", file=sys.stderr)
         raise SystemExit(2)
+    if settings.profile:  # make it obvious whose data this run is touching
+        print(f"[profile: {settings.profile}]", file=sys.stderr)
+    return settings
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -660,6 +664,34 @@ def cmd_postular(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_setup(_: argparse.Namespace) -> int:
+    """Create the folders and starter files for a person; safe to run again."""
+    from job_assistant.config import PROJECT_ROOT, profile_dir
+    from job_assistant.setup_profile import scaffold
+
+    settings = _settings_or_exit()
+    who = f"profile '{settings.profile}'" if settings.profile else "the default profile"
+    result = scaffold(
+        settings.data_dir, settings.tracker_path, PROJECT_ROOT / "examples",
+        profile_dir(settings.profile) / ".env" if settings.profile else None,
+    )
+    flag = f"--profile {settings.profile} " if settings.profile else ""
+    print(f"Setup for {who}: {settings.data_dir}")
+    print(f"  created: {', '.join(result.created) or '-'}")
+    print(f"  kept (already there, not touched): {', '.join(result.kept) or '-'}")
+    print(
+        "\nNext steps, in this order:\n"
+        f"  1. Copy the CVs into {settings.data_dir / 'cv'}\n"
+        f"  2. Fill in {settings.data_dir / 'profile.toml'} (name, skills, certifications, situation)\n"
+        f"  3. Fill in {settings.data_dir / 'cv_master.toml'} (employers, dates, education: the facts a CV\n"
+        "     can never change). Until then the system refuses to generate CVs: it still holds the example.\n"
+        f"  4. python -m job_assistant {flag}index\n"
+        f"  5. Add postings to the 'Postular' sheet of {settings.tracker_path}\n"
+        f"  6. python -m job_assistant {flag}postular"
+    )
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     """Strict second opinion (Claude) on generated CVs, before the candidate sends them."""
     from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
@@ -729,7 +761,11 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(prog="job_assistant")
+    parser.add_argument("--profile", help="Work on another person's data (profiles/<name>/); "
+                        "without it, the default person. Same as setting JOB_ASSISTANT_PROFILE.")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("setup", help="Create the folders and starter files for a person").set_defaults(func=cmd_setup)
 
     check = sub.add_parser("check", help="Verify .env config and the connection to the model provider")
     check.add_argument("--provider", choices=["anthropic", "deepseek"], default=None,
@@ -816,6 +852,8 @@ def main(argv: list[str] | None = None) -> int:
     tracker.set_defaults(func=cmd_tracker)
 
     args = parser.parse_args(argv)
+    if args.profile:
+        os.environ[PROFILE_ENV] = args.profile
     if args.command == "contacts":
         args.name = args.name_opt or args.name
     return args.func(args)

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -48,11 +49,40 @@ class Settings:
     deepseek_writer_model: str | None = None  # None = deepseek_model
     writer_provider: str = "anthropic"  # the CV writer
     review_provider: str = "anthropic"  # requirements check + HR reviewer
+    profile: str | None = None  # None = the default (first) person; else profiles/<name>/
 
 
-def _resolve_dir(value: str | None, default: str) -> Path:
+PROFILE_ENV = "JOB_ASSISTANT_PROFILE"
+PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$")
+# Where a person's files live. In profile mode these may only come from that profile's own
+# folder / .env, never from the shared .env, which holds the default person's paths: otherwise a
+# second person would silently read and write the first person's CV, tracker and index.
+PATH_KEYS = frozenset({"DATA_DIR", "OUTPUT_DIR", "VECTORSTORE_DIR", "TRACKER_PATH", "TRACKER_SHEET"})
+
+
+def profile_name(value: str | None = None) -> str | None:
+    name = (os.getenv(PROFILE_ENV, "") if value is None else value).strip()
+    if not name:
+        return None
+    if not PROFILE_NAME.match(name):
+        raise ConfigError(f"Invalid profile name '{name}': use letters, digits, - or _ (max 31).")
+    return name
+
+
+def profile_dir(name: str) -> Path:
+    return PROJECT_ROOT / "profiles" / name
+
+
+def _load_shared_env(path: Path) -> None:
+    """Load the shared .env without letting it set per-person paths (see PATH_KEYS)."""
+    for key, value in dotenv_values(path).items():
+        if key not in PATH_KEYS and value is not None and key not in os.environ:
+            os.environ[key] = value
+
+
+def _resolve_dir(value: str | None, default: str, base: Path = PROJECT_ROOT) -> Path:
     path = Path(value or default)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    return path if path.is_absolute() else base / path
 
 
 def _effort(value: str | None) -> str | None:
@@ -72,8 +102,8 @@ def _flag(value: str | None) -> bool | None:
     return text in ("1", "true", "yes", "on")
 
 
-def _provider(name: str, value: str | None, has_deepseek_key: bool) -> str:
-    provider = (value or "").strip().lower() or "anthropic"
+def _provider(name: str, value: str | None, has_deepseek_key: bool, default: str = "anthropic") -> str:
+    provider = (value or "").strip().lower() or default
     if provider not in ("anthropic", "deepseek"):
         raise ConfigError(f"{name} must be 'anthropic' or 'deepseek' (got '{provider}').")
     if provider == "deepseek" and not has_deepseek_key:
@@ -86,24 +116,34 @@ def load_settings(env_file: Path | None = None) -> Settings:
 
     Variables already set in the environment take precedence over `.env`.
     """
-    load_dotenv(env_file or PROJECT_ROOT / ".env", override=False)
+    profile = profile_name()
+    shared = env_file or PROJECT_ROOT / ".env"
+    if profile:
+        load_dotenv(profile_dir(profile) / ".env", override=False)  # the person's own settings first
+        _load_shared_env(shared)  # then shared ones (keys, models, providers), minus the paths
+    else:
+        load_dotenv(shared, override=False)
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        raise ConfigError(
-            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
-        )
-
-    data_dir = _resolve_dir(os.getenv("DATA_DIR"), "data")
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip() or None
+    if not api_key and not deepseek_key:
+        raise ConfigError(
+            "No API key found: set ANTHROPIC_API_KEY or DEEPSEEK_API_KEY in .env (copy .env.example)."
+        )
+    anthropic_on = _flag(os.getenv("ANTHROPIC_ENABLED")) is not False
+    default_provider = "anthropic" if api_key and anthropic_on else "deepseek"
+
+    base = profile_dir(profile) if profile else PROJECT_ROOT
+    data_dir = _resolve_dir(os.getenv("DATA_DIR"), "data", base)
     tracker_env = os.getenv("TRACKER_PATH", "").strip()
     return Settings(
         anthropic_api_key=api_key,
+        profile=profile,
         model=os.getenv("CLAUDE_MODEL", "").strip() or DEFAULT_MODEL,
         data_dir=data_dir,
-        output_dir=_resolve_dir(os.getenv("OUTPUT_DIR"), "output"),
-        vectorstore_dir=_resolve_dir(os.getenv("VECTORSTORE_DIR"), "vectorstore"),
-        tracker_path=_resolve_dir(tracker_env, "") if tracker_env else data_dir / "tracker.xlsx",
+        output_dir=_resolve_dir(os.getenv("OUTPUT_DIR"), "output", base),
+        vectorstore_dir=_resolve_dir(os.getenv("VECTORSTORE_DIR"), "vectorstore", base),
+        tracker_path=_resolve_dir(tracker_env, "", base) if tracker_env else data_dir / "tracker.xlsx",
         tracker_sheet=os.getenv("TRACKER_SHEET", "").strip() or None,
         tracker_initial_status=os.getenv("TRACKER_INITIAL_STATUS", "").strip() or "Pending review",
         followup_stale_days=int(os.getenv("FOLLOWUP_STALE_DAYS", "").strip() or 7),
@@ -117,6 +157,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
         writer_thinking=_flag(os.getenv("WRITER_THINKING")),
         review_thinking=_flag(os.getenv("REVIEW_THINKING")),
         deepseek_writer_model=os.getenv("DEEPSEEK_WRITER_MODEL", "").strip() or None,
-        writer_provider=_provider("WRITER_PROVIDER", os.getenv("WRITER_PROVIDER"), bool(deepseek_key)),
-        review_provider=_provider("REVIEW_PROVIDER", os.getenv("REVIEW_PROVIDER"), bool(deepseek_key)),
+        writer_provider=_provider("WRITER_PROVIDER", os.getenv("WRITER_PROVIDER"), bool(deepseek_key),
+                                  default_provider),
+        review_provider=_provider("REVIEW_PROVIDER", os.getenv("REVIEW_PROVIDER"), bool(deepseek_key),
+                                  default_provider),
     )

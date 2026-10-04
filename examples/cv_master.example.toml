@@ -9,6 +9,11 @@ email = "alex@example.com"
 linkedin = "linkedin.com/in/alex-sample"
 file_prefix = "Alex_Sample"
 
+# Your professional field, used in the writer and reviewer prompts (e.g. "senior software developers",
+# "registered nurses", "accountants"). Defaults to software developers if omitted.
+[meta]
+field = "senior software developers"
+
 [default_title]
 en = "Senior Java Developer"
 fr = "Développeur Java sénior"

@@ -30,7 +30,7 @@ def profile(reason: str = "layoff", **situation: str) -> CandidateProfile:
 
 def test_profile_situation_loaded(tmp_path: Path) -> None:
     (tmp_path / "profile.toml").write_bytes((EXAMPLES / "profile.example.toml").read_bytes())
-    loaded = load_candidate_profile(tmp_path)
+    loaded = load_candidate_profile(tmp_path, allow_example=True)
     assert loaded.situation["employment_end_reason"] == "layoff"
     assert "employment_end_reason: layoff" in loaded.as_prompt_text()
 

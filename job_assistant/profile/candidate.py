@@ -24,6 +24,8 @@ class CandidateProfile:
     spoken_languages: list[str] = field(default_factory=list)
     work_authorization: str = ""
     locations: list[str] = field(default_factory=list)
+    # True: location / work-mode requirements never stop a CV (open to relocate, any work mode).
+    flexible_location: bool = False
     # Free-form facts used to answer application forms (end of last job, salary, notice...).
     situation: dict[str, str] = field(default_factory=dict)
 
@@ -41,6 +43,7 @@ class CandidateProfile:
                 f"Spoken languages: {fmt(self.spoken_languages)}",
                 f"Work authorization: {self.work_authorization or '(not stated)'}",
                 f"Target locations: {fmt(self.locations)}",
+                f"Open to relocating and any work mode: {'yes' if self.flexible_location else 'not stated'}",
                 *(
                     [f"Situation / facts for application forms:"]
                     + [f"  - {k}: {v}" for k, v in self.situation.items()]
@@ -55,7 +58,10 @@ class ProfileNotFoundError(FileNotFoundError):
     pass
 
 
-def load_candidate_profile(data_dir: Path) -> CandidateProfile:
+PLACEHOLDER_NAME = "Your Name"  # the name used by examples/profile.example.toml
+
+
+def load_candidate_profile(data_dir: Path, allow_example: bool = False) -> CandidateProfile:
     path = data_dir / PROFILE_FILENAME
     if not path.is_file():
         raise ProfileNotFoundError(
@@ -63,6 +69,11 @@ def load_candidate_profile(data_dir: Path) -> CandidateProfile:
         )
     with path.open("rb") as f:
         raw = tomllib.load(f)
+    if raw.get("name") == PLACEHOLDER_NAME and not allow_example:
+        raise ProfileNotFoundError(
+            f"{path} still has the example data. Fill in the real name, skills, certifications, "
+            "education and situation before running anything: every score and answer depends on it."
+        )
     return CandidateProfile(
         name=raw.get("name", ""),
         title=raw["title"],
@@ -73,5 +84,6 @@ def load_candidate_profile(data_dir: Path) -> CandidateProfile:
         spoken_languages=list(raw.get("spoken_languages", [])),
         work_authorization=raw.get("work_authorization", ""),
         locations=list(raw.get("locations", [])),
+        flexible_location=bool(raw.get("flexible_location", False)),
         situation={str(k): str(v) for k, v in raw.get("situation", {}).items() if str(v).strip()},
     )

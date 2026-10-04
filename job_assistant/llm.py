@@ -55,6 +55,8 @@ def get_chat_model(
             "The Claude API is disabled (ANTHROPIC_ENABLED=false in .env). "
             "Use DeepSeek, or set ANTHROPIC_ENABLED=true to allow Claude again."
         )
+    if not settings.anthropic_api_key:
+        raise ConfigError("ANTHROPIC_API_KEY is not set in .env.")
     headers = (
         {"anthropic-workspace-id": settings.workspace_id} if settings.workspace_id else None
     )

@@ -37,9 +37,7 @@ A certification not listed under Certifications is not held.
 simply does not mention, rather than guessing either way.
 3. Quote the evidence briefly (from the profile or an excerpt), or explain what is missing.
 
-Location, commute, relocation and work mode (on-site, hybrid, remote) are NOT hard blockers: the \
-candidate lives in Toronto, is willing to relocate and accepts any work mode, so mark those \
-met or unclear, never not_met.
+__LOGISTICS__
 
 Never assume the candidate has something that is not written. Never mark a nice_to_have as \
 must_have to be cautious. Write everything in English."""
@@ -78,8 +76,9 @@ def build_messages(
         "\n\n".join(f"[{i}] ({h.source})\n{h.text}" for i, h in enumerate(excerpts, start=1))
         or "(no documents indexed)"
     )
+    rule = LOGISTICS_FLEXIBLE if profile.flexible_location else LOGISTICS_STRICT
     return [
-        SystemMessage(SYSTEM_PROMPT),
+        SystemMessage(SYSTEM_PROMPT.replace("__LOGISTICS__", rule)),
         HumanMessage(
             f"<candidate_profile>\n{profile.as_prompt_text()}\n</candidate_profile>\n\n"
             f"<document_excerpts>\n{excerpt_text}\n</document_excerpts>\n\n"
@@ -88,9 +87,20 @@ def build_messages(
     ]
 
 
-# Location, commute and work-mode requirements are never hard blockers for this candidate: they
-# live in Toronto, will relocate and accept any work mode (see the profile's situation facts).
-# A model that marks one as not_met is guessing, and a false stop wastes the candidate's time.
+LOGISTICS_FLEXIBLE = (
+    "Location, commute, relocation and work mode (on-site, hybrid, remote) are NOT hard blockers: "
+    "the candidate is open to relocating and accepts any work mode (see the profile), so mark "
+    "those met or unclear, never not_met."
+)
+LOGISTICS_STRICT = (
+    "Location, commute, relocation and work mode: compare them with the profile's location, "
+    "relocation and work-mode facts, and mark not_met only when they clearly contradict those "
+    "facts; otherwise met or unclear."
+)
+
+# For a candidate whose profile says `flexible_location = true`, location and work-mode
+# requirements are never hard blockers. A model that marks one as not_met is guessing, and a
+# false stop wastes the candidate's time.
 LOGISTICS = re.compile(
     r"\b(commut\w*|relocat\w*|on-?site|in-?office|office|hybrid|remote|reside\w*|located|based in|"
     r"work from|days? (a|per) (week|wk)|presenc\w*|sur place|bureau|hybride|télétravail)\b",
@@ -103,7 +113,7 @@ def soften_logistics(assessment: RequirementsAssessment) -> RequirementsAssessme
     fixed = []
     for r in assessment.requirements:
         if r.kind == "must_have" and r.status == "not_met" and LOGISTICS.search(r.requirement):
-            note = "Location/work mode: the candidate lives in Toronto, will relocate and accepts any work mode."
+            note = "Location/work mode: the candidate is open to relocating and accepts any work mode."
             r = r.model_copy(update={"status": "unclear", "evidence": f"{note} ({r.evidence})"})
         fixed.append(r)
     return assessment.model_copy(update={"requirements": fixed})
@@ -119,4 +129,4 @@ class RequirementsAgent:
     ) -> RequirementsAssessment:
         result = self._llm.invoke(build_messages(posting_text, profile, excerpts or []))
         assert isinstance(result, RequirementsAssessment)
-        return soften_logistics(result)
+        return soften_logistics(result) if profile.flexible_location else result

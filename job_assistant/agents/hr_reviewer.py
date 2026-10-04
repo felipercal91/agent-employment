@@ -26,8 +26,8 @@ PASS_MIN_SCORE = 7
 # (+0.8). Subtracting the difference makes a given score mean the same with either provider.
 PROVIDER_SCORE_OFFSET = {"anthropic": 0.0, "deepseek": -0.8}
 
-SYSTEM_PROMPT = """You are a senior technical recruiter in Canada who screens backend developer \
-CVs every day, together with the hiring manager's eye for substance. You review ONE tailored CV \
+SYSTEM_PROMPT = """You are a senior recruiter in Canada who screens CVs for {field} \
+every day, together with the hiring manager's eye for substance. You review ONE tailored CV \
 for ONE posting before the candidate sends it. Be demanding and concrete; you are protecting the \
 candidate from a rejection.
 
@@ -176,7 +176,8 @@ def build_messages(
     auto = "\n".join(f"- [{f.severity}] {f.problem}" for f in findings) or "- none"
     day = (today or date.today()).isoformat()
     return [
-        SystemMessage(SYSTEM_PROMPT.format(language_rule=_LANGUAGE_RULES[lang], today=day)),
+        SystemMessage(SYSTEM_PROMPT.format(language_rule=_LANGUAGE_RULES[lang], today=day,
+                                           field=master.field())),
         HumanMessage(
             f"<job_posting>\n{jd_text}\n</job_posting>\n\n"
             f"<facts>\n{master.source_text(lang)}\n</facts>\n\n"

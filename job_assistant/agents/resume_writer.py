@@ -30,7 +30,7 @@ QUEBEC_EN_RULE = (
     "the headline must say 'Developer' (e.g. 'Senior Java Developer'), never 'Engineer'."
 )
 
-SYSTEM_PROMPT = """You are an expert resume writer for senior software developers in Canada. You \
+SYSTEM_PROMPT = """You are an expert resume writer for {field} in Canada. You \
 tailor ONE candidate's real CV to ONE job posting.
 
 Truth rules (never break these):
@@ -127,7 +127,8 @@ def build_messages(
         )
     return [
         SystemMessage(SYSTEM_PROMPT.format(
-            language_rule=_LANGUAGE_RULES[lang] + (QUEBEC_EN_RULE if quebec and lang == "en" else "")
+            language_rule=_LANGUAGE_RULES[lang] + (QUEBEC_EN_RULE if quebec and lang == "en" else ""),
+            field=master.field(),
         )),
         HumanMessage("\n\n".join(parts)),
     ]

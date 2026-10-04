@@ -39,3 +39,6 @@ output/*
 Thumbs.db
 .idea/
 .vscode/
+
+# Other people's data (profiles/<name>/): CVs, trackers, indexes, keys
+profiles/
