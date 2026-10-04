@@ -45,6 +45,7 @@ STATUS_NO_JD = "Falta descripción"
 STATUS_MISMATCH = "No cumple requisito"
 STATUS_ERROR = "Error"
 STATUS_TODO = {"", "nuevo", "regenerar", "forzar"}
+LANGUAGE_FALLBACK_NOTE = "La vacante pide francés pero no hay versión de tu CV en francés: se generó en inglés."
 MIN_FULL_DESCRIPTION = 200  # chars: a real job description
 MIN_SUMMARY = 40  # chars: a pasted summary, used only when the link cannot be read
 SUMMARY_WARNING = "Basado en un resumen corto (el link no se pudo leer): pega la descripción completa para un CV más preciso."
@@ -217,6 +218,9 @@ def process_row(
 
     # 3. Writer <-> HR reviewer loop, then PDF
     lang = choose_language(row.get("language"), jd.text)
+    language_note = ""
+    if lang == "fr" and not master.has_language("fr"):
+        lang, language_note = "en", LANGUAGE_FALLBACK_NOTE
     folder, pdf = bounded_paths(output_dir, today, str(master.contact.get("file_prefix", "CV")),
                                 lang, company, role)
     quebec = detect_market(jd.text, location, company).is_quebec
@@ -245,6 +249,8 @@ def process_row(
     notes = result.review.notes_for_candidate + (f" Gaps: {gaps}." if gaps else "")
     if summary_only:
         notes = f"{SUMMARY_WARNING} {notes}"
+    if language_note:
+        notes = f"{language_note} {notes}"
     sheet.update(
         row["_row"],
         {
@@ -341,6 +347,8 @@ def audit_row(
     jd = (folder / "job_description.txt").read_text(encoding="utf-8")
     forced = str(row.get("language") or "").strip().lower()
     lang: Language = forced if forced in {"en", "fr"} else "en"  # type: ignore[assignment]
+    if lang == "fr" and not master.has_language("fr"):
+        lang = "en"
     quebec = detect_market(jd, str(row.get("location") or ""), company).is_quebec
     try:
         from pypdf import PdfReader

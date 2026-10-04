@@ -35,6 +35,20 @@ class CVMaster:
     contact: dict[str, str]
     raw: dict[str, Any] = field(repr=False)
 
+    def has_language(self, lang: Language) -> bool:
+        """True when every part of the CV facts exists in `lang` (English is always required)."""
+        if lang == "en":
+            return True
+        try:
+            jobs = self.jobs(lang)
+            return bool(jobs) and all(j.bullets and j.title and j.dates for j in jobs) and bool(
+                self.education(lang) and self.certifications(lang) and self.languages(lang)
+                and self.tools(lang) and self.methodologies(lang) and self.summary_facts(lang)
+                and self.default_title(lang)
+            )
+        except KeyError:
+            return False
+
     def protect_engineer_title(self) -> bool:
         """Quebec protects 'ingénieur' (OIQ). On by default: only a person who is not an engineer or a
         developer (e.g. compliance) should turn it off with `[meta] protect_engineer_title = false`."""

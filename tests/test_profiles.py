@@ -324,3 +324,83 @@ def test_setup_with_the_compliance_template(root: Path, monkeypatch: pytest.Monk
     assert main(["setup"]) == 0  # the default person's setup uses the generic examples, not compliance
     default_profile = (root / "data" / "profile.toml").read_text(encoding="utf-8")
     assert "Java" in default_profile and "Compliance Analyst" not in default_profile
+
+
+# ---- a person with an English-only CV --------------------------------------------------------------
+
+
+def english_only_master(tmp_path: Path) -> Any:
+    import tomllib
+
+    from job_assistant.cv.master import CVMaster
+
+    raw = tomllib.loads((EXAMPLES / 'cv_master.example.toml').read_text(encoding='utf-8'))
+    for job in raw['experience']:
+        for key in [k for k in job if k.endswith('_fr')]:
+            del job[key]
+    del raw['education']['fr'], raw['summary_facts']['fr']
+    return CVMaster(contact=raw['contact'], raw=raw)
+
+
+def test_has_language(tmp_path: Path) -> None:
+    import tomllib
+
+    from job_assistant.cv.master import CVMaster
+
+    full = CVMaster(contact={}, raw=tomllib.loads((EXAMPLES / 'cv_master.example.toml').read_text(encoding='utf-8')))
+    assert full.has_language('en') and full.has_language('fr')
+    only_en = english_only_master(tmp_path)
+    assert only_en.has_language('en') and not only_en.has_language('fr')
+
+
+def test_french_posting_falls_back_to_english_without_a_french_cv(tmp_path: Path) -> None:
+    from datetime import date
+
+    from job_assistant.agents.hr_reviewer import HRReview, Scores
+    from job_assistant.agents.requirements_agent import Requirement
+    from job_assistant.cv import postular
+    from job_assistant.cv.content import Bullet, JobBullets, ResumeContent
+    from job_assistant.cv.jd import JobDescription
+    from job_assistant.tracker.template import create_tracker_template
+
+    master = english_only_master(tmp_path)
+    path = create_tracker_template(tmp_path / 'tracker.xlsx')
+    postular.ensure_sheet(path)
+    fr_jd = ('Nous cherchons un analyste en conformité avec de l' + chr(39) + 'expérience pour notre équipe dans les services '
+             'financiers. Vous avez une maîtrise des politiques et des contrôles dans les institutions. ') * 4
+    postular.table(path).append({'link': 'https://x/fr', 'company': 'Desjardins', 'description': fr_jd})
+    [row] = postular.pending_rows(path)
+
+    class Req:
+        def check(self, *a: Any) -> RequirementsAssessment:
+            return RequirementsAssessment(company='Desjardins', role_title='Analyste', location='Montréal, QC',
+                requirements=[Requirement(requirement='r', kind='must_have', status='met', evidence='e')])
+
+    class Writer:
+        langs: list[str] = []
+
+        def write(self, jd: str, m: Any, lang: str, *a: Any, **k: Any) -> ResumeContent:
+            Writer.langs.append(lang)
+            return ResumeContent(title='Analyst', summary='s', competencies=['c'], tools=m.tools(lang),
+                methodologies=m.methodologies(lang),
+                experience=[JobBullets(job_id=j.id, bullets=[Bullet(lead='', rest=j.bullets[0])]) for j in m.jobs(lang)])
+
+    class Reviewer:
+        def review(self, *a: Any) -> HRReview:
+            return HRReview(scores=Scores(requirements_coverage=9, truthfulness=9, human_tone=9, clarity=9,
+                ats_keywords=9, candidate_fit=9), issues=[], gaps_cannot_fix=[], likely_interview_questions=[],
+                notes_for_candidate='ok')
+
+    def fake_render(html: str, out: Path) -> int:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(html, encoding='utf-8')
+        return 2
+
+    out = postular.process_row(row, path=path, master=master,
+        profile=CandidateProfile(name='M', title='T', years_experience=5, skills=[]),
+        requirements=Req(), writer=Writer(), reviewer=Reviewer(), output_dir=tmp_path / 'out',
+        renderer=fake_render, today=date(2026, 10, 4))  # type: ignore[arg-type]
+    assert Writer.langs == ['en']  # the posting is French, the CV could not be
+    assert out.status == postular.STATUS_READY and out.cv_path is not None and 'Resume' in out.cv_path.name
+    saved = postular.table(path).rows()[0]
+    assert saved['language'] == 'en' and saved['hr_notes'].startswith('La vacante pide francés')
