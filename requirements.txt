@@ -17,3 +17,7 @@ pytest>=8.0
 
 # CV generation: PDF printed with the locally installed Chrome/Edge
 playwright>=1.40
+
+# Optional second provider (DeepSeek) and job-board reading
+langchain-deepseek>=1.0
+httpx>=0.27
