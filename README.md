@@ -126,7 +126,7 @@ Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obli
 
 Estado `CV listo – revisar` = cumple esa regla; `CV con observaciones` = revisa las observaciones antes de enviar.
 
-Salida en `output/cv/<fecha>_<empresa>_<puesto>/`: el PDF (`Felipe_Rodriguez_Resume_...` o `..._CV_...` en francés), `job_description.txt` y `revision_hr.md` (puntajes, observaciones, brechas, preguntas probables de entrevista). La fila se actualiza con Estado, Archivo CV (con link), Puntaje HR y Observaciones.
+Salida: una carpeta por día y por corrida, `output/Resumenes 10-6/` (la segunda corrida del mismo día: `Resumenes 10-6 2`, luego `... 3`). Dentro, una subcarpeta por vacante (`<Empresa>_<Puesto>/`) con el PDF (`Felipe_Rodriguez_Resume_...` o `..._CV_...` en francés), `job_description.txt`, `revision_hr.md` y los JSON. La carpeta del día solo aparece cuando se genera el primer CV (una corrida sin resultados no deja carpetas vacías). Los CVs generados antes de este cambio siguen en `output/cv/`. La fila del Excel enlaza al PDF.
 
 Idioma: el del posting (o la columna Idioma). En Quebec el titular nunca dice Engineer/Ingénieur.
 

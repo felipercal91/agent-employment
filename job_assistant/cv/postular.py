@@ -113,32 +113,60 @@ def choose_language(row_value: object, jd_text: str) -> Language:
 MAX_PATH_CHARS = 200  # Windows stops at 260; leave room for the temp/backup suffixes
 
 
+def _part(text: str, n: int) -> str:
+    """'Tata Consultancy Services' -> 'Tata-Consultancy-Services' (at most n characters)."""
+    return "-".join(w.capitalize() for w in slugify(text, n).split("-")) or "Unknown"
+
+
 def cv_filename(prefix: str, lang: Language, company: str, role: str,
                 company_chars: int = 30, role_chars: int = 40) -> str:
     kind = "Resume" if lang == "en" else "CV"
-
-    def part(text: str, n: int) -> str:
-        return "-".join(w.capitalize() for w in slugify(text, n).split("-")) or "Unknown"
-
-    return f"{prefix}_{kind}_{part(company, company_chars)}_{part(role, role_chars)}.pdf"
+    return f"{prefix}_{kind}_{_part(company, company_chars)}_{_part(role, role_chars)}.pdf"
 
 
-def bounded_paths(output_dir: Path, today: date, prefix: str, lang: Language,
-                  company: str, role: str) -> tuple[Path, Path]:
-    """Folder and PDF paths that stay under MAX_PATH_CHARS by shortening the role, then the company."""
-    base = str(output_dir.resolve())
+DAY_FOLDER_PREFIX = "Resumenes"
+
+
+def run_folder_name(today: date, run: int = 1) -> str:
+    """'Resumenes 10-6' for the first run of the day, 'Resumenes 10-6 2' for the second..."""
+    base = f"{DAY_FOLDER_PREFIX} {today.month}-{today.day}"
+    return base if run <= 1 else f"{base} {run}"
+
+
+def next_run_folder(output_dir: Path, today: date) -> Path:
+    """The folder for a NEW run: the first 'Resumenes M-D [N]' that does not exist yet.
+
+    It is only named here, not created: it appears when the first CV is written, so a run that
+    produces nothing leaves no empty folder behind.
+    """
+    run = 1
+    while (output_dir / run_folder_name(today, run)).exists():
+        run += 1
+    return output_dir / run_folder_name(today, run)
+
+
+def bounded_paths(run_dir: Path, prefix: str, lang: Language, company: str, role: str) -> tuple[Path, Path]:
+    """Folder and PDF paths inside `run_dir`, kept under MAX_PATH_CHARS by shortening the role, then
+    the company. Two postings with the same company and role in one run get '-2', '-3'..."""
+    base = str(run_dir.resolve())
     company_chars, role_chars = 30, 40
     while True:
-        folder = output_dir / "cv" / f"{today.isoformat()}_{slugify(company, company_chars)}_{slugify(role, role_chars)}"
-        pdf = folder / cv_filename(prefix, lang, company, role, company_chars, role_chars)
-        if len(base) + len(str(pdf.relative_to(output_dir))) + 1 <= MAX_PATH_CHARS or (company_chars <= 8 and role_chars <= 8):
-            return folder, pdf
+        name = f"{_part(company, company_chars)}_{_part(role, role_chars)}"
+        pdf_name = cv_filename(prefix, lang, company, role, company_chars, role_chars)
+        if len(base) + len(name) + len(pdf_name) + 3 <= MAX_PATH_CHARS or (company_chars <= 8 and role_chars <= 8):
+            break
         if role_chars > 12:
             role_chars -= 4
         elif company_chars > 8:
             company_chars -= 4
         else:
             role_chars = max(8, role_chars - 2)
+    folder = run_dir / name
+    n = 2
+    while folder.exists():
+        folder = run_dir / f"{name}-{n}"
+        n += 1
+    return folder, folder / pdf_name
 
 
 @dataclass
@@ -166,6 +194,7 @@ def process_row(
     reviewer: HRReviewerAgent,
     output_dir: Path,
     store: ProfileStore | None = None,
+    run_dir: Path | None = None,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     fetch: JDFetcher = fetch_job_description,
     renderer: Renderer = render_pdf,
@@ -221,7 +250,9 @@ def process_row(
     language_note = ""
     if lang == "fr" and not master.has_language("fr"):
         lang, language_note = "en", LANGUAGE_FALLBACK_NOTE
-    folder, pdf = bounded_paths(output_dir, today, str(master.contact.get("file_prefix", "CV")),
+    # All CVs of one run go into one day folder (the caller passes it; alone, the first run's name).
+    day_dir = run_dir or output_dir / run_folder_name(today)
+    folder, pdf = bounded_paths(day_dir, str(master.contact.get("file_prefix", "CV")),
                                 lang, company, role)
     quebec = detect_market(jd.text, location, company).is_quebec
     result = generate_resume(jd_text, master, lang, writer, reviewer, pdf,
@@ -279,7 +310,10 @@ class AuditOutcome:
 
 
 def find_cv_folder(output_dir: Path, cv_file: str) -> Path | None:
-    matches = sorted((output_dir / "cv").glob(f"*/{cv_file}"))
+    matches = sorted(output_dir.glob(f"{DAY_FOLDER_PREFIX} */*/{cv_file}"),
+                     key=lambda m: m.stat().st_mtime)  # newest run wins
+    matches += sorted((output_dir / "cv").glob(f"*/{cv_file}"))  # layout used before the day folders
+    matches.sort(key=lambda m: m.stat().st_mtime)
     return matches[-1].parent if matches else None
 
 

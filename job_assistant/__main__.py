@@ -570,6 +570,8 @@ def _short(exc: BaseException) -> str:
 
 
 def cmd_postular(args: argparse.Namespace) -> int:
+    from datetime import date
+
     from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
     from job_assistant.agents.requirements_agent import RequirementsAgent
     from job_assistant.agents.resume_writer import ResumeWriterAgent
@@ -625,6 +627,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
         reviewer=HRReviewerAgent(light, PROVIDER_SCORE_OFFSET[review_provider]),
     )
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
+    run_dir = postular.next_run_folder(settings.output_dir, date.today())
     print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "
           f"(max {args.max_rounds} rounds), PDF.")
     failures = 0
@@ -635,7 +638,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
         try:
             out = postular.process_row(
                 row, path=path, master=master, profile=profile, output_dir=settings.output_dir,
-                store=store, max_rounds=args.max_rounds, **agents,
+                store=store, max_rounds=args.max_rounds, run_dir=run_dir, **agents,
             )
         except TrackerError as e:  # Excel open, etc.: stop, nothing else can be written
             print(f"  ! {e}", file=sys.stderr)
@@ -659,6 +662,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
             print(f"  CV: {out.cv_path}")
         else:
             print(f"  {out.detail}")
+    if run_dir.exists():
+        print(f"\nCVs of this run: {run_dir}")
     print(f"\nTotal usage: {usage_tracker.snapshot().describe()}")
     print(f"Done. Results written to sheet '{postular.SHEET}' in {path}.")
     return 1 if failures else 0

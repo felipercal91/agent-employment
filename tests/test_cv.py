@@ -540,14 +540,14 @@ def test_blocker_forces_a_retry_even_when_average_is_decent(master: Any, tmp_pat
 
 
 def test_cv_paths_stay_short_on_windows(tmp_path: Path) -> None:
-    deep = tmp_path / ('a' * 30)
+    deep = tmp_path / ('a' * 30) / postular.run_folder_name(TODAY)
     long_company, long_role = 'Resonaite International Holdings', 'Delivery Manager (Professional Services and Managed Cloud Operations)'
-    unbounded = len(str(deep / 'cv')) + len(f'2026-10-01_{long_company}_{long_role}') * 2 + 30
-    folder, pdf = postular.bounded_paths(deep, TODAY, 'Felipe_Rodriguez', 'en', long_company, long_role)
+    unbounded = len(str(deep)) + len(f'{long_company}_{long_role}') * 2 + 30
+    folder, pdf = postular.bounded_paths(deep, 'Felipe_Rodriguez', 'en', long_company, long_role)
     assert len(str(pdf)) <= postular.MAX_PATH_CHARS < 260 < unbounded
-    assert pdf.parent == folder and pdf.suffix == '.pdf' and 'Resonai' in pdf.name
-    short = postular.bounded_paths(tmp_path, TODAY, 'X', 'fr', 'Acme', 'Dev')[1]
-    assert short.name == 'X_CV_Acme_Dev.pdf'
+    assert pdf.parent == folder and folder.parent == deep and pdf.suffix == '.pdf' and 'Resonai' in pdf.name
+    short = postular.bounded_paths(tmp_path, 'X', 'fr', 'Acme', 'Dev')[1]
+    assert short.name == 'X_CV_Acme_Dev.pdf' and short.parent.name == 'Acme_Dev'
 
 
 def test_process_row_saves_content_and_review_json(sheet_path: Path, master: Any, tmp_path: Path) -> None:
@@ -747,3 +747,55 @@ def test_audit_without_saved_content(sheet_path: Path, master: Any, tmp_path: Pa
                              output_dir=tmp_path / "out")
     assert out.status == "Sin datos" and "Regenerar" in out.detail
     assert postular.table(sheet_path).rows()[0]["status"] == postular.STATUS_READY  # untouched
+
+
+# ---- one folder per day and run ------------------------------------------------------------------
+
+
+def test_run_folder_names(tmp_path: Path) -> None:
+    from datetime import date
+
+    assert postular.run_folder_name(date(2026, 10, 6)) == 'Resumenes 10-6'
+    assert postular.run_folder_name(date(2026, 10, 6), 2) == 'Resumenes 10-6 2'
+    assert postular.run_folder_name(date(2026, 1, 15), 3) == 'Resumenes 1-15 3'
+    day = date(2026, 10, 6)
+    assert postular.next_run_folder(tmp_path, day) == tmp_path / 'Resumenes 10-6'
+    assert not (tmp_path / 'Resumenes 10-6').exists()          # only named, never created by itself
+    (tmp_path / 'Resumenes 10-6').mkdir()
+    assert postular.next_run_folder(tmp_path, day) == tmp_path / 'Resumenes 10-6 2'
+    (tmp_path / 'Resumenes 10-6 2').mkdir()
+    assert postular.next_run_folder(tmp_path, day).name == 'Resumenes 10-6 3'
+    assert postular.next_run_folder(tmp_path, date(2026, 10, 7)).name == 'Resumenes 10-7'  # next day starts over
+
+
+def test_cvs_of_one_run_share_the_day_folder(sheet_path: Path, master: Any, tmp_path: Path) -> None:
+    add_row(sheet_path, link='https://x/a', company='Acme', role='Dev')
+    add_row(sheet_path, link='https://x/b', company='Beta', role='Dev')
+    add_row(sheet_path, link='https://x/c', company='Acme', role='Dev')       # same company + role as the first
+    out_dir = tmp_path / 'out'
+    run_dir = postular.next_run_folder(out_dir, TODAY)
+    paths = []
+    for row in postular.pending_rows(sheet_path):
+        res = postular.process_row(
+            row, path=sheet_path, master=master, profile=PROFILE, requirements=FakeRequirements(),  # type: ignore[arg-type]
+            writer=FakeWriter([content()]), reviewer=FakeReviewer([review(9)]), output_dir=out_dir,  # type: ignore[arg-type]
+            fetch=lambda url: JobDescription(text=JD, title='Java Dev'), renderer=fake_render, today=TODAY,
+            run_dir=run_dir)
+        assert res.cv_path is not None
+        paths.append(res.cv_path)
+    assert {p.parent.parent for p in paths} == {out_dir / 'Resumenes 10-1'}
+    assert sorted(p.parent.name for p in paths) == ['Acme_Dev', 'Acme_Dev-2', 'Beta_Dev']
+    assert all((p.parent / 'revision_hr.md').exists() for p in paths)
+    assert not (out_dir / 'cv').exists()
+    assert postular.next_run_folder(out_dir, TODAY).name == 'Resumenes 10-1 2'  # a second run today
+
+
+def test_audit_finds_cvs_in_day_folders_and_in_the_old_layout(tmp_path: Path) -> None:
+    new = tmp_path / 'Resumenes 10-6' / 'Acme_Dev'
+    old = tmp_path / 'cv' / '2026-10-01_beta_dev'
+    for folder, name in ((new, 'A.pdf'), (old, 'B.pdf')):
+        folder.mkdir(parents=True)
+        (folder / name).write_bytes(b'x')
+    assert postular.find_cv_folder(tmp_path, 'A.pdf') == new
+    assert postular.find_cv_folder(tmp_path, 'B.pdf') == old
+    assert postular.find_cv_folder(tmp_path, 'C.pdf') is None
