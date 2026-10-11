@@ -404,3 +404,110 @@ def test_french_posting_falls_back_to_english_without_a_french_cv(tmp_path: Path
     assert out.status == postular.STATUS_READY and out.cv_path is not None and 'Resume' in out.cv_path.name
     saved = postular.table(path).rows()[0]
     assert saved['language'] == 'en' and saved['hr_notes'].startswith('La vacante pide francés')
+
+
+# ---- per-person standing rules: fixed tools, banned words, base CV ------------------------------------
+
+
+def master_with(meta: str, skills_extra: str = "") -> Any:
+    import tomllib
+
+    from job_assistant.cv.master import CVMaster
+
+    raw = tomllib.loads((EXAMPLES / "cv_master.example.toml").read_text(encoding="utf-8"))
+    raw["meta"] = tomllib.loads(meta)["meta"] if meta else raw["meta"]
+    if skills_extra:
+        raw["skills"].update(tomllib.loads(skills_extra)["skills"])
+    return CVMaster(contact=raw["contact"], raw=raw)
+
+
+def test_keep_all_tools_prints_every_tool_in_order() -> None:
+    from job_assistant.cv.content import Bullet, JobBullets, ResumeContent, normalize
+
+    base = master_with("", "[skills]" + chr(10) + "keep_all_tools = true")
+    assert base.keep_all_tools() is True
+    trimmed = ResumeContent(
+        title="t", summary="s", competencies=[], tools=["Docker"], methodologies=["Agile"],
+        experience=[JobBullets(job_id=j.id, bullets=[Bullet(lead="", rest="x")]) for j in base.jobs("en")])
+    fixed, _ = normalize(trimmed, base, "en")
+    assert fixed.tools == base.tools("en") and fixed.methodologies == ["Agile"]
+    normal = master_with("")
+    assert normal.keep_all_tools() is False
+    assert normalize(trimmed, normal, "en")[0].tools == ["Docker"]  # others keep the writer's selection
+
+
+def test_banned_terms_and_standing_rules() -> None:
+    from job_assistant.agents.resume_writer import build_messages as writer_messages
+    from job_assistant.agents.resume_writer import standing_rules
+    from job_assistant.cv.checks import banned_terms_found, run_checks
+    from job_assistant.cv.content import ResumeContent
+
+    meta = chr(10).join(["[meta]", 'field = "x"',
+                         'extra_rules = ["Never state a language level."]',
+                         'banned_terms = ["proficiency", "native", "fluent"]'])
+    m = master_with(meta)
+    assert m.extra_rules() == ["Never state a language level."] and m.banned_terms() == ["proficiency", "native", "fluent"]
+    assert standing_rules(master_with("")) == ""
+    assert "Never state a language level." in writer_messages("jd", m, "en")[0].content
+    assert "Standing rules" not in writer_messages("jd", master_with(""), "en")[0].content
+
+    def cv(summary: str) -> ResumeContent:
+        return ResumeContent(title="t", summary=summary, competencies=["native tools"], experience=[],
+                             tools=[], methodologies=[])
+
+    found = banned_terms_found(cv("Fluent English and Spanish proficiency."), m.banned_terms())
+    assert set(found) == {"proficiency", "native", "fluent"}      # "native" comes from the competencies
+    assert "native" in banned_terms_found(cv("ok"), m.banned_terms())               # whole word, also in competencies
+    assert banned_terms_found(ResumeContent(title="t", summary="Nativeland is fine", competencies=[], experience=[],
+                                            tools=[], methodologies=[]), ["native"]) == []   # not inside another word
+    findings = run_checks(cv("Fluent in English."), "en", m.source_text("en"), "", 2, master=m)
+    assert any(f.severity == "blocker" and "does not want" in f.problem for f in findings)
+    clean = ResumeContent(title="t", summary="Bilingual in Spanish and English.", competencies=[], experience=[],
+                          tools=[], methodologies=[])
+    assert not any("does not want" in f.problem for f in run_checks(clean, "en", m.source_text("en"), "", 2, master=m))
+
+
+def test_split_lead_cuts_at_natural_boundaries() -> None:
+    from job_assistant.cv.base import split_lead
+
+    cases = {
+        "Demonstrated high adaptability and strong time-management skills in a fast-paced environment.":
+            ("Demonstrated high adaptability", "and strong time-management skills in a fast-paced environment."),
+        "Managed inventory preparation, resource allocation, and team coordination.":
+            ("Managed inventory preparation,", "resource allocation, and team coordination."),
+        "Prepared, analyzed, and monitored commercial campaigns, generating tracking reports.":
+            ("Prepared, analyzed, and monitored commercial campaigns,", "generating tracking reports."),
+        "Conducted comprehensive process surveys across Accounting and Legal departments.":
+            ("Conducted comprehensive process surveys", "across Accounting and Legal departments."),
+    }
+    for text, (lead, rest) in cases.items():
+        b = split_lead(text)
+        assert (b.lead, b.rest) == (lead, rest), text
+        assert f"{b.lead} {b.rest}" == text  # nothing is lost or reworded
+    short = split_lead("Built things.")
+    assert (short.lead, short.rest) == ("Built things.", "")
+
+
+def test_base_cv_uses_only_the_master(tmp_path: Path) -> None:
+    from job_assistant.cv.base import base_content
+    from job_assistant.cv.render import build_html
+
+    m = master_with("", "[skills]" + chr(10) + "keep_all_tools = true")
+    content = base_content(m, "en")
+    assert content.summary == m.summary_facts("en") and content.tools == m.tools("en")
+    originals = [b for j in m.jobs("en") for b in j.bullets]
+    rebuilt = [f"{b.lead} {b.rest}".strip() for j in content.experience for b in j.bullets]
+    assert rebuilt == originals                                   # every bullet, verbatim and in order
+    html = build_html(m, content, "en")
+    assert "Methodologies:" not in html                           # not printed twice (they are the competencies)
+    assert "<b>Languages:</b> English (C1), French (B2), Spanish (native)" in html
+
+
+def test_real_anny_master_if_present() -> None:
+    real = Path(__file__).resolve().parent.parent / "profiles" / "anny" / "data"
+    if not (real / "cv_master.toml").is_file():
+        pytest.skip("no personal profile here")
+    m = load_master(real)
+    assert m.keep_all_tools() and m.tools("en")[-1] == "Bizagi" and not any("ERP" in t for t in m.tools("en"))
+    assert m.languages("en") == "Spanish, English"
+    assert "native" in m.banned_terms() and "Native" not in m.summary_facts("en")

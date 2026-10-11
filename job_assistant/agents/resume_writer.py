@@ -36,6 +36,15 @@ QUEBEC_EN_RULE = (
 )
 
 
+def standing_rules(master: CVMaster) -> str:
+    """The person's own permanent rules (cv_master.toml [meta] extra_rules), appended to the prompt."""
+    rules = master.extra_rules()
+    if not rules:
+        return ""
+    bullets = "\n".join(f"- {r}" for r in rules)
+    return f"\n\nStanding rules from the candidate (always follow them):\n{bullets}"
+
+
 def language_rule(lang: Language, protect_engineer_title: bool, quebec: bool) -> str:
     if not protect_engineer_title:
         return _LANGUAGE_RULES["en"] if lang == "en" else _FRENCH_GENERIC
@@ -139,7 +148,7 @@ def build_messages(
         SystemMessage(SYSTEM_PROMPT.format(
             language_rule=language_rule(lang, master.protect_engineer_title(), quebec),
             field=master.field(),
-        )),
+        ) + standing_rules(master)),
         HumanMessage("\n\n".join(parts)),
     ]
 

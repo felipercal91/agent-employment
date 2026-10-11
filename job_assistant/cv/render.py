@@ -58,6 +58,9 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
     for key in ("tools", "methods"):
         L[key] = master.label(key, lang, L[key])
     L = {k: _e(v) for k, v in L.items()}  # labels reach the HTML: escape the & in "Tools & Technology"
+    def skill_line(label: str, items: list[str]) -> str:  # an empty list prints no empty label
+        return f'<p class="line"><b>{label}</b> {_e(", ".join(items))}</p>' if items else ""
+
     c = master.contact
     contact = " | ".join(_e(c[k]) for k in ("location", "phone", "email", "linkedin") if c.get(k))
     jobs = {j.id: j for j in master.jobs(lang)}
@@ -86,8 +89,8 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
 <h2>{L['education']}</h2>{education}
 <h2>{L['skills']}</h2>
 <p class="line"><b>{L['certs']}</b> {_e(master.certifications(lang))}</p>
-<p class="line"><b>{L['tools']}</b> {_e(', '.join(content.tools))}</p>
-<p class="line"><b>{L['methods']}</b> {_e(', '.join(content.methodologies))}</p>
+{skill_line(L['tools'], content.tools)}
+{skill_line(L['methods'], content.methodologies)}
 <p class="line"><b>{L['languages']}</b> {_e(master.languages(lang))}</p>
 </body></html>"""
 

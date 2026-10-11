@@ -49,6 +49,18 @@ class CVMaster:
         except KeyError:
             return False
 
+    def keep_all_tools(self) -> bool:
+        """`[skills] keep_all_tools = true`: the tools line always prints every tool, in the file's order."""
+        return bool(self.raw.get("skills", {}).get("keep_all_tools", False))
+
+    def extra_rules(self) -> list[str]:
+        """`[meta] extra_rules`: standing instructions for the writer, specific to this person."""
+        return [str(r) for r in self.raw.get("meta", {}).get("extra_rules", [])]
+
+    def banned_terms(self) -> list[str]:
+        """`[meta] banned_terms`: words that must never appear in the tailored text (checked in code)."""
+        return [str(t) for t in self.raw.get("meta", {}).get("banned_terms", [])]
+
     def protect_engineer_title(self) -> bool:
         """Quebec protects 'ingénieur' (OIQ). On by default: only a person who is not an engineer or a
         developer (e.g. compliance) should turn it off with `[meta] protect_engineer_title = false`."""

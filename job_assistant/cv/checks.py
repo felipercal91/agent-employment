@@ -150,6 +150,12 @@ def in_progress_certification_claims(content: ResumeContent, source: str) -> lis
     return flagged
 
 
+def banned_terms_found(content: ResumeContent, terms: list[str]) -> list[str]:
+    """Terms from the person's banned list that appear in the tailorable text (whole words)."""
+    text = content.all_text()
+    return [t for t in terms if re.search(rf"(?<![\wÀ-ÿ]){re.escape(t)}(?![\wÀ-ÿ])", text, re.IGNORECASE)]
+
+
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
     """Bullets that open with a leadership verb the matching fact does not use."""
     lead = LEAD_VERBS[lang]
@@ -197,6 +203,11 @@ def run_checks(
     if unfinished:
         findings.append(Finding("blocker", f"Certification still in progress, written as obtained: {', '.join(unfinished)}",
                                 "Say 'in progress' or leave it out; the facts say it is not finished."))
+    if master is not None:
+        banned = banned_terms_found(content, master.banned_terms())
+        if banned:
+            findings.append(Finding("blocker", f"Words the candidate does not want on her CV: {', '.join(banned)}",
+                                    "Remove them (see [meta] banned_terms in cv_master.toml)."))
     claims = unsupported_claim_terms(content, source, lang)
     if claims:
         findings.append(Finding("blocker", f"Claims not supported by your facts: {', '.join(claims)}",

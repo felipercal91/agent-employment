@@ -701,6 +701,26 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_base(args: argparse.Namespace) -> int:
+    """Build the person's base CV from cv_master.toml: no model, no cost."""
+    from job_assistant.cv.base import build_base_cv
+    from job_assistant.cv.master import MasterNotFoundError, load_master
+
+    settings = _settings_or_exit()
+    try:
+        master = load_master(settings.data_dir)
+    except MasterNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    lang = args.lang or "en"
+    if lang == "fr" and not master.has_language("fr"):
+        print("There is no French version in cv_master.toml; building the English one.", file=sys.stderr)
+        lang = "en"
+    pdf, pages = build_base_cv(master, lang, settings.output_dir)
+    print(f"Base CV ({lang}, {pages} page(s)): {pdf}")
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     """Strict second opinion (Claude) on generated CVs, before the candidate sends them."""
     from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
@@ -849,6 +869,10 @@ def main(argv: list[str] | None = None) -> int:
     post.add_argument("--review-provider", choices=["anthropic", "deepseek"],
                       help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
+
+    base = sub.add_parser("base", help="Build the base CV from cv_master.toml (no AI, no cost)")
+    base.add_argument("--lang", choices=["en", "fr"], help="Language (default: English)")
+    base.set_defaults(func=cmd_base)
 
     audit = sub.add_parser("audit", help="Strict Claude review of generated CVs before you send them")
     audit.add_argument("--row", type=int, help="Excel row of the CV to audit (default: every 'CV listo')")

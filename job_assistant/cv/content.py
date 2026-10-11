@@ -75,6 +75,6 @@ def normalize(content: ResumeContent, master: CVMaster, lang: Language) -> tuple
             problems.append(f"{label}: not in your facts, removed: {', '.join(dropped)}")
         return kept or list(allowed)
 
-    tools = subset(content.tools, master.tools(lang), "Tools")
+    tools = master.tools(lang) if master.keep_all_tools() else subset(content.tools, master.tools(lang), "Tools")
     methods = subset(content.methodologies, master.methodologies(lang), "Methodologies")
     return content.model_copy(update={"experience": ordered, "tools": tools, "methodologies": methods}), problems
