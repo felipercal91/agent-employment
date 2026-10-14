@@ -7,6 +7,7 @@ requirements-check stop. Results are written back to the same row.
 from __future__ import annotations
 
 import logging
+from copy import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -70,6 +71,12 @@ COLUMNS = [
     _col("hr_score", "Puntaje HR", 10, "puntaje", "score"),
     _col("hr_notes", "Observaciones HR", 60, "observaciones"),
     _col("processed", "Procesado", 12, "fecha"),
+    # Added for the daily flow: where a posting came from, when it was published, and the gate the
+    # assisted-application step will look at (nothing is applied to unless this says Sí).
+    _col("fit", "Fit %", 8, "fit", "fit %", "match"),
+    _col("approved", "Aprobado (Sí/No)", 14, "aprobado", "approved"),
+    _col("source", "Fuente", 14, "fuente", "source"),
+    _col("posted", "Publicada", 12, "publicada", "posted"),
 ]
 
 
@@ -77,16 +84,43 @@ def table(path: Path) -> SheetTable:
     return SheetTable(path, SHEET, COLUMNS)
 
 
+def _add_missing_columns(ws: Any) -> list[str]:
+    """Append any column this version of the sheet needs but an older sheet lacks. Never moves data."""
+    mapping = SheetTable(Path("unused"), SHEET, COLUMNS)._map(ws)
+    if mapping is None:
+        return []
+    header_row, found = mapping
+    added = []
+    for col in COLUMNS:
+        if col.field in found:
+            continue
+        index = ws.max_column + 1
+        cell = ws.cell(header_row, index, col.header)
+        template = ws.cell(header_row, index - 1)
+        cell.font, cell.fill = copy(template.font), copy(template.fill)
+        cell.alignment, cell.border = copy(template.alignment), copy(template.border)
+        ws.column_dimensions[cell.column_letter].width = col.width
+        if col.field == "approved":
+            dv = DataValidation(type="list", formula1='"Sí,No"', allow_blank=True)
+            dv.add(f"{cell.column_letter}{header_row + 1}:{cell.column_letter}500")
+            ws.add_data_validation(dv)
+        added.append(col.header)
+    return added
+
+
 def ensure_sheet(path: Path) -> bool:
     """Create the Postular sheet (with dropdowns) if missing. Returns True if created."""
     ensure_writable(path)
     wb = load_workbook(path)
     if SHEET in wb.sheetnames:
+        if _add_missing_columns(wb[SHEET]):
+            backup(path)
+            wb.save(path)
         return False
     ws = wb.create_sheet(SHEET, 0)  # first tab: it is the daily entry point
     write_header(ws, [(c.field, c.header, c.width) for c in COLUMNS])
     letters = {c.field: ws.cell(1, i).column_letter for i, c in enumerate(COLUMNS, start=1)}
-    for field, options in (("status", STATUSES), ("language", ["auto", "en", "fr"])):
+    for field, options in (("status", STATUSES), ("language", ["auto", "en", "fr"]), ("approved", ["Sí", "No"])):
         dv = DataValidation(type="list", formula1=f"\"{','.join(options)}\"", allow_blank=True)
         dv.add(f"{letters[field]}2:{letters[field]}500")
         ws.add_data_validation(dv)

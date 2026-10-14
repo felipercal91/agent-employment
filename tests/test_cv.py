@@ -354,7 +354,7 @@ def run(path: Path, master: Any, tmp_path: Path, row: dict[str, Any], *, stop: b
 def test_sheet_is_first_with_dropdowns(sheet_path: Path) -> None:
     wb = load_workbook(sheet_path)
     assert wb.sheetnames[0] == "Postular"
-    assert len(wb["Postular"].data_validations.dataValidation) == 2
+    assert len(wb["Postular"].data_validations.dataValidation) == 3  # status, language, approved
 
 
 def test_pending_rows(sheet_path: Path) -> None:

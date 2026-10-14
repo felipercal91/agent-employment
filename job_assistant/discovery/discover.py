@@ -41,6 +41,8 @@ class DiscoveryConfig:
     locations: list[str] = field(default_factory=lambda: list(DEFAULT_LOCATIONS))
     min_fit: int = 50
     require_any_keyword: list[str] = field(default_factory=lambda: list(DEFAULT_REQUIRE_ANY))
+    max_age_days: int = 21  # board postings published longer ago are skipped (when the date is known)
+    daily_max_new: int = 15  # at most this many new postings are added to the Postular sheet per day
 
 
 def load_config(data_dir: Path) -> DiscoveryConfig:
@@ -58,6 +60,8 @@ def load_config(data_dir: Path) -> DiscoveryConfig:
         locations=filters.get("locations", defaults.locations),
         min_fit=int(filters.get("min_fit", defaults.min_fit)),
         require_any_keyword=filters.get("require_any_keyword", defaults.require_any_keyword),
+        max_age_days=int(filters.get("max_age_days", defaults.max_age_days)),
+        daily_max_new=int(filters.get("daily_max_new", defaults.daily_max_new)),
     )
 
 

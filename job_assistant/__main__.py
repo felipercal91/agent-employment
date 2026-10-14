@@ -665,8 +665,70 @@ def cmd_postular(args: argparse.Namespace) -> int:
     if run_dir.exists():
         print(f"\nCVs of this run: {run_dir}")
     print(f"\nTotal usage: {usage_tracker.snapshot().describe()}")
+    summary = getattr(args, "summary", None)
+    if summary is not None:  # the `daily` command reads these for its report
+        summary.update(usage=usage_tracker.snapshot().describe(),
+                       run_dir=run_dir if run_dir.exists() else None, failures=failures)
     print(f"Done. Results written to sheet '{postular.SHEET}' in {path}.")
     return 1 if failures else 0
+
+
+def cmd_daily(args: argparse.Namespace) -> int:
+    """Search new postings -> add them to Postular -> write the CVs -> Spanish report."""
+    from datetime import date
+
+    from job_assistant.cv import postular
+    from job_assistant.discovery import daily
+    from job_assistant.discovery.discover import load_config
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+    from job_assistant.tracker.contacts import ContactBook
+    from job_assistant.tracker.workbook import WorkbookError, ensure_writable
+
+    settings = _settings_or_exit()
+    path, today = settings.tracker_path, date.today()
+    if not path.is_file():
+        print(f"Tracker not found at {path}. Run `tracker init` first.", file=sys.stderr)
+        return 2
+    try:
+        ensure_writable(path)  # fail before spending anything if Excel has the file open
+        postular.ensure_sheet(path)
+        profile = load_candidate_profile(settings.data_dir)
+    except (WorkbookError, TrackerError, ProfileNotFoundError) as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    config = load_config(settings.data_dir)
+    if args.no_boards:
+        config.boards = []
+    print(f"Searching ({len(config.boards)} company boards + data/inbox)...")
+    known = daily.KnownPostings(Tracker(path, settings.tracker_sheet), path)
+    search = daily.search_new(profile, config, known, settings.data_dir / "inbox", today)
+    try:
+        rows = daily.add_to_postular(path, search.to_add)
+    except (WorkbookError, TrackerError) as e:
+        print(e, file=sys.stderr)
+        return 2
+    daily.archive_handled_inbox(search)
+    print(f"Read {search.postings_read} | new added to Postular: {len(rows)} | already tracked: "
+          f"{len(search.discovery.already_tracked)} | stale: {search.stale} | filtered: {search.discovery.filtered_out}")
+
+    summary: dict = {}
+    code = 0
+    if not args.no_cv:
+        post_args = argparse.Namespace(row=None, max_rounds=args.max_rounds, writer_provider=None,
+                                       review_provider=None, summary=summary)
+        code = cmd_postular(post_args)
+
+    notes = [] if code == 0 else ["La generación de CVs terminó con errores: revisa la consola y la hoja Postular."]
+    due = [f"{c.name} ({c.company or c.agency or '-'}): {since if since is not None else '?'} días"
+           for c, since in ContactBook(path).stale(settings.followup_stale_days, today)]
+    report = daily.DailyReport(
+        today=today, search=search, added=len(rows), results=daily.todays_results(path, today),
+        usage=summary.get("usage", ""), run_dir=summary.get("run_dir"), recruiters_due=due, notes=notes,
+    )
+    out = daily.write_report(settings.output_dir, today, daily.render_daily_report(report))
+    print(f"\nReport: {out}")
+    return code
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -869,6 +931,12 @@ def main(argv: list[str] | None = None) -> int:
     post.add_argument("--review-provider", choices=["anthropic", "deepseek"],
                       help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
+
+    daily = sub.add_parser("daily", help="Search new postings, add them to Postular, write the CVs, report")
+    daily.add_argument("--no-boards", action="store_true", help="Only use data/inbox/")
+    daily.add_argument("--no-cv", action="store_true", help="Search and fill the sheet, skip the CVs")
+    daily.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
+    daily.set_defaults(func=cmd_daily)
 
     base = sub.add_parser("base", help="Build the base CV from cv_master.toml (no AI, no cost)")
     base.add_argument("--lang", choices=["en", "fr"], help="Language (default: English)")

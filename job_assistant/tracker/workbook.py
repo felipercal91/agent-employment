@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
+import sys
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -36,8 +38,25 @@ def norm_header(text: object) -> str:
     return re.sub(r"\s+", " ", raw).strip().lower()
 
 
+def _excel_running() -> bool | None:
+    """True/False on Windows, None when it cannot be told."""
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq EXCEL.EXE", "/NH"], capture_output=True,
+                             text=True, timeout=15).stdout
+    except Exception:
+        return None
+    return "EXCEL.EXE" in out.upper()
+
+
 def ensure_writable(path: Path) -> None:
-    if path.with_name(f"~${path.name}").exists():
+    """Refuse to write while Excel has the file open.
+
+    A lock file left behind by an Excel that is no longer running (it crashed) is ignored: it would
+    otherwise block every unattended run until someone deleted it by hand.
+    """
+    if path.with_name(f"~${path.name}").exists() and _excel_running() is not False:
         raise WorkbookLockedError(f"{path.name} is open in Excel. Close it and try again.")
 
 
@@ -157,19 +176,28 @@ class SheetTable:
                 cell.number_format = "yyyy-mm-dd"
 
     def append(self, values: dict[str, Any]) -> int:
+        return self.append_many([values])[0]
+
+    def append_many(self, records: list[dict[str, Any]]) -> list[int]:
+        """Append all records in one write (one backup). Returns the row numbers used."""
+        if not records:
+            return []
         wb, ws, header_row, cols = self._open_for_write()
         last = header_row
         for r in range(header_row + 1, ws.max_row + 1):
             if any(ws.cell(r, c).value not in (None, "") for c in cols.values()):
                 last = r
-        row = last + 1
-        self._set(ws, row, cols, values)
+        rows: list[int] = []
+        for values in records:
+            last += 1
+            self._set(ws, last, cols, values)
+            rows.append(last)
         ref = ws.auto_filter.ref
-        if ref and (m := re.fullmatch(r"([A-Z]+\d+):([A-Z]+)(\d+)", ref)) and int(m.group(3)) < row:
-            ws.auto_filter.ref = f"{m.group(1)}:{m.group(2)}{row}"
+        if ref and (m := re.fullmatch(r"([A-Z]+\d+):([A-Z]+)(\d+)", ref)) and int(m.group(3)) < last:
+            ws.auto_filter.ref = f"{m.group(1)}:{m.group(2)}{last}"
         backup(self.path)
         wb.save(self.path)
-        return row
+        return rows
 
     def update(self, row: int, values: dict[str, Any], links: dict[str, str] | None = None) -> None:
         """Write `values` into `row`; `links` maps a field to a hyperlink target for its cell."""

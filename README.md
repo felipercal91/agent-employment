@@ -104,6 +104,8 @@ Nunca toca LinkedIn ni Indeed. Dos fuentes:
 ```powershell
 python -m job_assistant discover                          # reporte en output/discovery/<fecha>/report.md
 python -m job_assistant discover --check --top 5 --add    # + requirements check y alta en el tracker de las que pasan
+python -m job_assistant daily                              # corrida diaria: busca nuevas -> las agrega a Postular -> genera CVs -> reporte
+python -m job_assistant daily --no-cv                      # solo busca y llena la hoja (sin gastar IA)
 ```
 
 Filtra por título, ubicación y que mencione Java/Spring/Kotlin; descarta lo que ya está en el tracker; ordena por fit. Cada vacante nueva se guarda como .txt listo para `tailor`.

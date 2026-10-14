@@ -117,10 +117,18 @@ def test_add_refuses_duplicate(tracker: Tracker) -> None:
     assert len(tracker.rows()) == 3
 
 
-def test_add_refuses_when_open_in_excel(tracker: Tracker) -> None:
+def test_add_refuses_when_open_in_excel(tracker: Tracker, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("job_assistant.tracker.workbook._excel_running", lambda: True)
     (tracker.path.parent / f"~${tracker.path.name}").write_bytes(b"")
     with pytest.raises(TrackerLockedError):
         tracker.add(NewEntry(company="A", role="B"))
+
+
+def test_stale_lock_is_ignored_when_excel_is_not_running(tracker: Tracker, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("job_assistant.tracker.workbook._excel_running", lambda: False)
+    (tracker.path.parent / f"~${tracker.path.name}").write_bytes(b"")
+    tracker.add(NewEntry(company="A", role="B"))
+    assert any(r.company == "A" for r in tracker.rows())
 
 
 def _evaluation(decision_not_met: bool) -> PostingEvaluation:
