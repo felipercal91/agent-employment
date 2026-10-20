@@ -23,7 +23,9 @@ from job_assistant.agents.resume_writer import ResumeWriterAgent
 from job_assistant.cv.jd import JobDescription, JobDescriptionError, fetch_job_description
 from job_assistant.cv.master import CVMaster
 from job_assistant.cv.pipeline import DEFAULT_MAX_ROUNDS, Renderer, generate_resume, render_review_report
+from job_assistant.cv.masters import load_master_content
 from job_assistant.cv.render import render_pdf
+from job_assistant.cv.roles import Role, RoleBase, match_role
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.profile.store import ProfileStore
 from job_assistant.tailoring.drafts import slugify
@@ -77,6 +79,7 @@ COLUMNS = [
     _col("approved", "Aprobado (Sí/No)", 14, "aprobado", "approved"),
     _col("source", "Fuente", 14, "fuente", "source"),
     _col("posted", "Publicada", 12, "publicada", "posted"),
+    _col("master_role", "Master usado", 40, "master", "master usado"),
 ]
 
 
@@ -212,6 +215,7 @@ class RowOutcome:
     detail: str
     cv_path: Path | None = None
     score: float | None = None
+    master: str = ""  # which role master the resume started from, and why
 
 
 JDFetcher = Callable[[str], JobDescription]
@@ -233,6 +237,8 @@ def process_row(
     fetch: JDFetcher = fetch_job_description,
     renderer: Renderer = render_pdf,
     today: date | None = None,
+    roles: list[Role] | None = None,
+    masters_dir: Path | None = None,
 ) -> RowOutcome:
     today = today or date.today()
     sheet = table(path)
@@ -289,8 +295,13 @@ def process_row(
     folder, pdf = bounded_paths(day_dir, str(master.contact.get("file_prefix", "CV")),
                                 lang, company, role)
     quebec = detect_market(jd.text, location, company).is_quebec
+    role_base, master_note = None, ""
+    if roles:  # start from the master resume of the closest role, and say which and why
+        picked = match_role(role, jd.text, roles)
+        role_base = RoleBase(picked.role, load_master_content(masters_dir, picked.role) if masters_dir else "")
+        master_note = f"{picked.role.name}. {picked.reason}"
     result = generate_resume(jd_text, master, lang, writer, reviewer, pdf,
-                             str(row.get("notes") or ""), max_rounds, renderer, quebec)
+                             str(row.get("notes") or ""), max_rounds, renderer, quebec, role_base)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "job_description.txt").write_text(
         f"{link}\nSource: {jd.source}\n\n{jd_text}\n", encoding="utf-8"
@@ -298,6 +309,11 @@ def process_row(
     if assessment.should_stop:
         verify = [f"NO CUMPLES: {r.requirement}" for r in assessment.hard_mismatches] + verify
     report = render_review_report(result, company, role, link, verify)
+    if master_note:
+        nl = chr(10)
+        report = report.replace(
+            f"{nl}## Notas del fiscalizador", f"{nl}**Master usado:** {master_note}{nl}{nl}## Notas del fiscalizador", 1
+        )
     if summary_only:
         report = report.replace(
             "\n## Notas del fiscalizador",
@@ -321,11 +337,11 @@ def process_row(
         {
             "status": status, "company": company, "role": role, "location": location,
             "language": lang, "cv_file": pdf.name, "hr_score": result.review.scores.average(),
-            "hr_notes": notes, "processed": today,
+            "hr_notes": notes, "processed": today, "master_role": master_note or None,
         },
         links={"cv_file": pdf.resolve().as_uri()},
     )
-    return RowOutcome(row["_row"], company, role, status, notes, pdf, result.review.scores.average())
+    return RowOutcome(row["_row"], company, role, status, notes, pdf, result.review.scores.average(), master_note)
 
 
 # ---- audit: a strict second opinion on CVs the candidate is about to send ---------------------

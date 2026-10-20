@@ -122,6 +122,17 @@ python -m job_assistant postular --row 5    # solo esa fila, sin importar su est
 
 Para cada fila: lee la descripción (una vez), revisa requisitos (si hay un obligatorio que no cumples, se detiene salvo `Forzar`), el **Agente Redactor** escribe el CV con tus hechos fijos (`data/cv_master.toml`) y el **Agente HR** lo revisa (veracidad, cobertura, tono humano, claridad, ATS) hasta 2 rondas. Se conserva la mejor ronda.
 
+### Masters por rol (opcional, recomendado)
+
+`data/roles.toml` define los roles a los que apuntas (Business Systems Analyst, Guidewire BA, Java Backend, Tech Lead...). Cada uno lleva `title_keywords` (para reconocer el título de la vacante), 10 `ats_keywords` y `verify_terms` (productos que el resume no puede afirmar si no están en tus hechos).
+
+```powershell
+python -m job_assistant masters                  # escribe un master por rol en output/master_resumes/
+python -m job_assistant masters --role java-backend
+```
+
+Genera `Master_<Rol>_Resume_EN.pdf` (+ su `.json`), `roles_index.json` (rol → archivo y palabras clave de título) y `ROLES_REPORT.md` (qué palabras clave tienes y cuáles son brechas). Con ese índice, `postular` elige el master del rol más cercano al título de cada vacante, parte de él y lo adapta a la descripción; la columna **Master usado** del Excel dice cuál eligió y por qué. Sin `roles.toml`, `postular` funciona como antes. Los resumes nunca afirman un `verify_terms` que no esté en `cv_master.toml` (es un bloqueo en código), no usan rayas como puntuación y piden la fórmula XYZ solo donde tus hechos dan una medida.
+
 **Costo:** cada corrida muestra tokens y costo estimado por vacante y el total. Para gastar menos: la 2.ª ronda solo ocurre si la 1.ª no alcanza promedio 7.0 con veracidad 7+ y sin bloqueos; la revisión de requisitos y el fiscalizador usan razonamiento bajo (`REVIEW_EFFORT` en `.env`: low/medium/high; vacío = default del modelo); el redactor usa el default. **Proveedores:** por defecto todo corre con Claude. DeepSeek es opcional (más barato): pon `DEEPSEEK_API_KEY` en `.env` y elige por rol `WRITER_PROVIDER` / `REVIEW_PROVIDER` (`anthropic` o `deepseek`), o por corrida con `--writer-provider` / `--review-provider`. `python -m job_assistant check --provider deepseek` prueba la conexión. Ojo: lo que se envía a DeepSeek sale de los servidores de Anthropic (perfil y datos de tu CV).
 
 `ANTHROPIC_ENABLED=false` en `.env` bloquea cualquier llamada a la API de Claude (error claro en vez de gasto). `python -m job_assistant audit [--row N]` vuelve a revisar CVs ya generados con el revisor configurado (puntajes calibrados a la escala de Claude; un revisor DeepSeek no es más estricto que el de `postular`, solo da una segunda lectura). Protecciones sin costo de API: bloqueo de dominios/habilidades que no están en tus datos (banca, "secured", "regulated"...), detección de verbos de liderazgo inflados, y los requisitos de ubicación/modalidad nunca detienen un CV.

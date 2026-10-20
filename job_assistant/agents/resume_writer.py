@@ -14,6 +14,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from job_assistant.llm import structured_llm
 from job_assistant.cv.content import ResumeContent
 from job_assistant.cv.master import CVMaster
+from job_assistant.cv.roles import RoleBase
 from job_assistant.tailoring.market import Language
 
 _LANGUAGE_RULES = {
@@ -60,15 +61,20 @@ You may select, merge, reorder, shorten and rephrase them, and choose what to em
 employer, a responsibility or a level of seniority that the facts do not state.
 - `tools` and `methodologies` must be items copied exactly from the facts' lists (reordered, \
 most relevant to the posting first; drop the irrelevant ones).
+- A tool may appear inside a job's bullet only if one of that job's own bullets in <facts> mentions it. A tool that the facts list only in the skills section stays in the Tools line: never turn it into an activity ("performed API checks in Postman") on a job.
 - Requirements of the posting that the facts do not support are left out. Do not hint at them.
 
 Writing rules (the CV must read as written by an experienced developer, not generated):
 - Plain, concrete verbs: built, designed, reviewed, led, migrated, integrated, cut, delivered. \
 Never: spearheaded, leveraged, utilized, orchestrated, fostered, results-driven, passionate, \
 dynamic, cutting-edge, seamless, proven track record, innovative solutions, synergy.
-- No em dashes. Vary sentence length and bullet openings; never start 3 bullets with the same verb.
-- Each bullet: a bold `lead` of 3-8 words that states what was done, then `rest` with the \
-context and the result. One or two lines; no filler adjectives.
+- No dashes as punctuation: no em dash, no en dash, no spaced hyphen. Use commas, periods or the \
+word "to". Canadian spelling, and CAD for any currency. Vary sentence length and bullet openings; \
+never start 3 bullets with the same verb.
+- Bullet formula (Google XYZ): accomplished X, measured by Y, by doing Z. Write the bold `lead` \
+(3-8 words, past tense) as the accomplishment X, then `rest` with the measure Y and the method Z. \
+Use Y only when the facts give a number or a concrete result. When they do not, state X and Z \
+plainly: never invent a measure. One or two lines; no filler adjectives, no passive voice.
 - Mirror the posting's vocabulary only where the facts support it (e.g. use the posting's own term for a \
 tool or practice when the facts show it).
 - Headline: the candidate's real level and stack, aligned with the posting's title when truthful.
@@ -130,11 +136,14 @@ def build_messages(
     previous: ResumeContent | None = None,
     feedback: list[str] | None = None,
     quebec: bool = False,
+    role_base: RoleBase | None = None,
 ) -> list[BaseMessage]:
     parts = [
         f"<facts>\n{_facts(master, lang)}\n</facts>",
         f"<job_posting>\n{jd_text}\n</job_posting>",
     ]
+    if role_base is not None:
+        parts.append(_role_block(role_base, lang))
     if candidate_notes:
         parts.append(f"<candidate_notes>\n{candidate_notes}\n</candidate_notes>")
     if previous is not None:
@@ -153,6 +162,24 @@ def build_messages(
     ]
 
 
+def _role_block(base: RoleBase, lang: Language) -> str:
+    role = base.role
+    text = (
+        f"<target_role>\nRole: {role.name}\nATS keywords of this role: {', '.join(role.ats_keywords)}\n"
+        f"Emphasis: {role.focus}\n"
+        "Mirror one of these keywords ONLY when the facts support it; the others stay out of the resume. "
+        "The summary must be specific to this role and must not read like any other role's summary.\n"
+    )
+    if base.master_json:
+        guide = "; write the result in French from the facts, the master is only a guide to emphasis" if lang == "fr" else ""
+        text += (
+            "\nThis candidate's master resume for the role (English), the starting point to adapt to the "
+            "posting. Reorder, reword and mirror the posting's keywords; keep what already fits; never "
+            f"add anything that is not in <facts>{guide}:\n{base.master_json}\n"
+        )
+    return text + "</target_role>"
+
+
 class ResumeWriterAgent:
     def __init__(self, llm: BaseChatModel) -> None:
         self._llm = structured_llm(llm, ResumeContent)
@@ -166,9 +193,10 @@ class ResumeWriterAgent:
         previous: ResumeContent | None = None,
         feedback: list[str] | None = None,
         quebec: bool = False,
+        role_base: RoleBase | None = None,
     ) -> ResumeContent:
         result = self._llm.invoke(
-            build_messages(jd_text, master, lang, candidate_notes, previous, feedback, quebec)
+            build_messages(jd_text, master, lang, candidate_notes, previous, feedback, quebec, role_base)
         )
         assert isinstance(result, ResumeContent)
         return result

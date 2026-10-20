@@ -156,6 +156,34 @@ def banned_terms_found(content: ResumeContent, terms: list[str]) -> list[str]:
     return [t for t in terms if re.search(rf"(?<![\wÀ-ÿ]){re.escape(t)}(?![\wÀ-ÿ])", text, re.IGNORECASE)]
 
 
+def _skill_names(item: str) -> list[str]:
+    """Names inside a skills-list entry: "Git & GitHub" -> Git, GitHub; "Java (J2EE, JSP)" -> Java."""
+    base = re.sub(r"\(.*?\)", "", item)
+    return [n.strip() for n in re.split(r"\s+(?:&|et|and)\s+|/", base) if len(n.strip()) >= 3]
+
+
+def _has_name(name: str, text: str) -> bool:
+    return re.search(rf"(?<![\wÀ-ÿ]){re.escape(name)}(?![\wÀ-ÿ])", text, re.IGNORECASE) is not None
+
+
+def skills_only_claims(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
+    """Tools a bullet presents as used on a job, when that job's own facts never mention them.
+
+    A tool listed only in the skills section (e.g. Postman) may stay in the Tools line, but a bullet
+    like "Performed API checks in Postman" claims an activity the facts do not state.
+    """
+    facts = {j.id: " ".join(j.bullets) for j in master.jobs(lang)}
+    names = [n for tool in master.tools(lang) for n in _skill_names(tool)]
+    flagged: list[str] = []
+    for job in content.experience:
+        job_facts = facts.get(job.job_id, "")
+        text = " ".join(b.text() for b in job.bullets)
+        for name in names:
+            if _has_name(name, text) and not _has_name(name, job_facts) and name not in flagged:
+                flagged.append(name)
+    return flagged
+
+
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
     """Bullets that open with a leadership verb the matching fact does not use."""
     lead = LEAD_VERBS[lang]
@@ -213,6 +241,10 @@ def run_checks(
         findings.append(Finding("blocker", f"Claims not supported by your facts: {', '.join(claims)}",
                                 "Remove them; if the posting asks for them, they are gaps, not claims."))
     if master is not None:
+        skills_only = skills_only_claims(content, master, lang)
+        if skills_only:
+            findings.append(Finding("major", f"Tools claimed in a bullet that the facts of that job do not mention: {', '.join(skills_only)}",
+                                    "Keep them in the Tools line only, or use the job's own facts."))
         upgrades = leadership_upgrades(content, master, lang)
         if upgrades:
             findings.append(Finding("major", "Leadership claim not in the facts: " + "; ".join(upgrades[:3]),

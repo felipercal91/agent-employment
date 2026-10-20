@@ -17,6 +17,7 @@ from job_assistant.cv.checks import Finding, run_checks
 from job_assistant.cv.content import ResumeContent, normalize
 from job_assistant.cv.master import CVMaster
 from job_assistant.cv.render import build_html, render_pdf
+from job_assistant.cv.roles import RoleBase, ungrounded_terms
 from job_assistant.tailoring.market import Language
 
 DEFAULT_MAX_ROUNDS = 2  # each extra round is a full writer + reviewer call; round 3 rarely improved
@@ -59,6 +60,7 @@ def generate_resume(
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     renderer: Renderer = render_pdf,
     quebec: bool = False,
+    role_base: RoleBase | None = None,
 ) -> ResumeResult:
     """Draft, check and review up to `max_rounds` times; the BEST round is the one rendered.
 
@@ -72,11 +74,16 @@ def generate_resume(
     best: tuple[tuple[bool, int, float], ResumeResult] | None = None
 
     for number in range(1, max_rounds + 1):
-        content = writer.write(jd_text, master, lang, candidate_notes, content, feedback, quebec)
+        extra = {"role_base": role_base} if role_base is not None else {}
+        content = writer.write(jd_text, master, lang, candidate_notes, content, feedback, quebec, **extra)
         content, fixes = normalize(content, master, lang)
         pages = renderer(build_html(master, content, lang), out_pdf)
         findings = run_checks(content, lang, source, jd_text, pages, quebec, master)
         findings += [Finding("minor", fix, "Keep to the facts' structure.") for fix in fixes]
+        if role_base is not None:
+            claimed = ungrounded_terms(role_base.role, content.all_text() + "\n" + " ".join(content.tools), source)
+            findings += [Finding("blocker", f"Claims '{t}', which is not in the candidate's facts.",
+                                 f"Remove '{t}' and reframe the transferable experience instead.") for t in claimed]
         review = reviewer.review(jd_text, content, master, lang, findings)
         ok = passes(review, findings)
         serious = sum(1 for i in review.issues if i.severity != "minor") + sum(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field
 
 from job_assistant.cv.master import CVMaster
@@ -46,6 +48,29 @@ class ResumeContent(BaseModel):
         return "\n".join(parts)
 
 
+# An em dash, or a spaced en dash / hyphen unless it sits between two digits (a range like 2021 – 2026).
+_DASH_PUNCTUATION = re.compile(r"\s*—\s*|(?<=\D)\s+[–-]\s+|\s+[–-]\s+(?=\D)")
+
+
+def strip_dashes(text: str) -> str:
+    """Dashes used as punctuation become commas. Ranges such as 2021-2026 and words like "cloud-native" stay."""
+    return _DASH_PUNCTUATION.sub(", ", text)
+
+
+def without_dash_punctuation(content: ResumeContent) -> ResumeContent:
+    return content.model_copy(update={
+        "title": strip_dashes(content.title),
+        "summary": strip_dashes(content.summary),
+        "competencies": [strip_dashes(c) for c in content.competencies],
+        "experience": [
+            job.model_copy(update={"bullets": [
+                Bullet(lead=strip_dashes(b.lead), rest=strip_dashes(b.rest)) for b in job.bullets
+            ]})
+            for job in content.experience
+        ],
+    })
+
+
 def normalize(content: ResumeContent, master: CVMaster, lang: Language) -> tuple[ResumeContent, list[str]]:
     """Enforce structure the facts dictate; return the content and what had to be fixed."""
     problems: list[str] = []
@@ -77,4 +102,5 @@ def normalize(content: ResumeContent, master: CVMaster, lang: Language) -> tuple
 
     tools = master.tools(lang) if master.keep_all_tools() else subset(content.tools, master.tools(lang), "Tools")
     methods = subset(content.methodologies, master.methodologies(lang), "Methodologies")
-    return content.model_copy(update={"experience": ordered, "tools": tools, "methodologies": methods}), problems
+    fixed = content.model_copy(update={"experience": ordered, "tools": tools, "methodologies": methods})
+    return without_dash_punctuation(fixed), problems

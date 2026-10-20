@@ -628,8 +628,19 @@ def cmd_postular(args: argparse.Namespace) -> int:
     )
     store = ProfileStore(persistent_client(settings.vectorstore_dir))
     run_dir = postular.next_run_folder(settings.output_dir, date.today())
+    from job_assistant.cv.roles import MASTER_FOLDER, RolesNotFoundError, load_roles
+
+    try:
+        roles = load_roles(settings.data_dir)
+    except RolesNotFoundError:
+        roles = None  # no roles.toml: resumes are tailored straight from cv_master.toml, as before
+    masters_dir = settings.output_dir / MASTER_FOLDER
+    if roles and not masters_dir.is_dir():
+        print(f"Note: {masters_dir} does not exist yet; run `masters` first so each resume starts from its "
+              "role's master.")
     print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "
           f"(max {args.max_rounds} rounds), PDF.")
+    used: list[tuple[int, str, str]] = []
     failures = 0
     for row in rows:
         label = row.get("company") or row.get("link") or f"row {row['_row']}"
@@ -638,7 +649,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
         try:
             out = postular.process_row(
                 row, path=path, master=master, profile=profile, output_dir=settings.output_dir,
-                store=store, max_rounds=args.max_rounds, run_dir=run_dir, **agents,
+                store=store, max_rounds=args.max_rounds, run_dir=run_dir, roles=roles, masters_dir=masters_dir,
+                **agents,
             )
         except TrackerError as e:  # Excel open, etc.: stop, nothing else can be written
             print(f"  ! {e}", file=sys.stderr)
@@ -655,6 +667,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
             print(f"  ! failed: {type(e).__name__}: {e}", file=sys.stderr)
             failures += 1
             continue
+        if out.master:
+            used.append((row["_row"], out.company, out.master))
         score = f" | HR {out.score}/10" if out.score is not None else ""
         print(f"  {out.status}: {out.company} – {out.role}{score}")
         print(f"  Usage: {(usage_tracker.snapshot() - before).describe()}")
@@ -662,6 +676,10 @@ def cmd_postular(args: argparse.Namespace) -> int:
             print(f"  CV: {out.cv_path}")
         else:
             print(f"  {out.detail}")
+    if used:
+        print("\nMaster used per row:")
+        for number, company_name, note in used:
+            print(f"  [row {number}] {company_name}: {note}")
     if run_dir.exists():
         print(f"\nCVs of this run: {run_dir}")
     print(f"\nTotal usage: {usage_tracker.snapshot().describe()}")
@@ -729,6 +747,57 @@ def cmd_daily(args: argparse.Namespace) -> int:
     out = daily.write_report(settings.output_dir, today, daily.render_daily_report(report))
     print(f"\nReport: {out}")
     return code
+
+
+def cmd_masters(args: argparse.Namespace) -> int:
+    """Phase 1: write one master resume per target role into <output>/master_resumes."""
+    from job_assistant.agents.hr_reviewer import PROVIDER_SCORE_OFFSET, HRReviewerAgent
+    from job_assistant.agents.resume_writer import ResumeWriterAgent
+    from job_assistant.cv.master import MasterNotFoundError, load_master
+    from job_assistant.cv.masters import build_masters
+    from job_assistant.cv.roles import MASTER_FOLDER, RolesNotFoundError, load_roles
+    from job_assistant.llm import get_chat_model
+    from job_assistant.usage import UsageGroup, UsageTracker
+
+    settings = _settings_or_exit()
+    try:
+        master = load_master(settings.data_dir)
+        roles = load_roles(settings.data_dir)
+    except (MasterNotFoundError, RolesNotFoundError) as e:
+        print(e, file=sys.stderr)
+        return 2
+    all_roles = roles
+    if args.role:
+        roles = [r for r in roles if r.id == args.role or r.file_name.casefold() == args.role.casefold()]
+        if not roles:
+            print(f"Unknown role '{args.role}'. See {settings.data_dir / 'roles.toml'}.", file=sys.stderr)
+            return 2
+    writer_provider = args.writer_provider or settings.writer_provider
+    review_provider = args.review_provider or settings.review_provider
+    writer_model = (settings.deepseek_writer_model or settings.deepseek_model
+                    if writer_provider == "deepseek" else settings.model)
+    review_model = settings.deepseek_model if review_provider == "deepseek" else settings.model
+    writer_tracker, review_tracker = UsageTracker(writer_model), UsageTracker(review_model)
+    usage = UsageGroup([writer_tracker, review_tracker])
+    try:
+        llm = get_chat_model(settings, max_tokens=16000, callbacks=[writer_tracker], provider=writer_provider,
+                             thinking=settings.writer_thinking, model=settings.deepseek_writer_model)
+        light = get_chat_model(settings, max_tokens=16000, callbacks=[review_tracker], effort=settings.review_effort,
+                               provider=review_provider, thinking=settings.review_thinking)
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
+    out_dir = settings.output_dir / MASTER_FOLDER
+    print(f"Providers: writer = {writer_provider} ({writer_model}), HR review = {review_provider} ({review_model})")
+    print(f"Writing {len(roles)} master resume(s) into {out_dir}")
+    results = build_masters(
+        roles, master, ResumeWriterAgent(llm), HRReviewerAgent(light, PROVIDER_SCORE_OFFSET[review_provider]),
+        out_dir, args.max_rounds, progress=lambda name: print(f"  - {name}"), all_roles=all_roles,
+    )
+    for r in results:
+        print(f"  {r.score:>4}/10 · {r.pages} page(s) · {len(r.gaps)} gap keyword(s) · {r.pdf.name}")
+    print(f"\nIndex: {out_dir / 'roles_index.json'}\nReport: {out_dir / 'ROLES_REPORT.md'}\nUsage: {usage.snapshot().describe()}")
+    return 0
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -932,7 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
                       help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
 
-    daily = sub.add_parser("daily", help="Search new postings, add them to Postular, write the CVs, report")
+    masters = sub.add_parser("masters", help="Write one master resume per target role (data/roles.toml)")
+    masters.add_argument("--role", help="Only this role (its id or file name, e.g. java-backend)")
+    masters.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
+    masters.add_argument("--writer-provider", choices=["anthropic", "deepseek"])
+    masters.add_argument("--review-provider", choices=["anthropic", "deepseek"])
+    masters.set_defaults(func=cmd_masters)
+
+    daily = sub.add_parser("daily",help="Search new postings, add them to Postular, write the CVs, report")
     daily.add_argument("--no-boards", action="store_true", help="Only use data/inbox/")
     daily.add_argument("--no-cv", action="store_true", help="Search and fill the sheet, skip the CVs")
     daily.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)

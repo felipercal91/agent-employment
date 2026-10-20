@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-from job_assistant.cv.content import ResumeContent
+from job_assistant.cv.content import ResumeContent, strip_dashes
 from job_assistant.cv.master import CVMaster
 from job_assistant.tailoring.market import Language
 
@@ -64,6 +64,8 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
     c = master.contact
     contact = " | ".join(_e(c[k]) for k in ("location", "phone", "email", "linkedin") if c.get(k))
     jobs = {j.id: j for j in master.jobs(lang)}
+    authorization = _e(str(c.get(f"work_authorization_{lang}") or c.get("work_authorization") or ""))
+    authorization_html = f'<p class="contact">{authorization}</p>' if authorization else ""
 
     exp_html = []
     for entry in content.experience:
@@ -78,17 +80,17 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
             f'<div class="company">{_e(job.company)} | {_e(job.location)}</div><ul>{bullets}</ul></div>'
         )
 
-    education = "".join(f'<p class="line">{_e(e)}</p>' for e in master.education(lang))
+    education = "".join(f'<p class="line">{_e(strip_dashes(e))}</p>' for e in master.education(lang))
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><style>{CSS}</style></head><body>
 <p class="name">{_e(c['name'])}</p>
 <p class="title">{_e(content.title)}</p>
-<p class="contact">{contact}</p>
+<p class="contact">{contact}</p>{authorization_html}
 <h2>{L['summary']}</h2><p>{_e(content.summary)}</p>
 <h2>{L['competencies']}</h2><p>{' • '.join(_e(x) for x in content.competencies)}</p>
 <h2>{L['experience']}</h2>{''.join(exp_html)}
 <h2>{L['education']}</h2>{education}
 <h2>{L['skills']}</h2>
-<p class="line"><b>{L['certs']}</b> {_e(master.certifications(lang))}</p>
+<p class="line"><b>{L['certs']}</b> {_e(strip_dashes(master.certifications(lang)))}</p>
 {skill_line(L['tools'], content.tools)}
 {skill_line(L['methods'], content.methodologies)}
 <p class="line"><b>{L['languages']}</b> {_e(master.languages(lang))}</p>
