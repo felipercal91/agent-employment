@@ -598,7 +598,11 @@ def cmd_postular(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 2
 
-    rows = postular.pending_rows(path, args.row)
+    rows = postular.pending_rows(path, args.row, getattr(args, "only_with_description", False))
+    if getattr(args, "only_with_description", False):
+        skipped = len(postular.pending_rows(path, args.row)) - len(rows)
+        if skipped:
+            print(f"Skipping {skipped} row(s) without a pasted description (paste it, then run again).")
     if not rows:
         print("Nothing to do: no rows with Estado empty / Nuevo / Regenerar / Forzar.")
         return 0
@@ -800,6 +804,48 @@ def cmd_masters(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Independent pass over generated resumes: do they clear the hard filters? (no AI, no cost)"""
+    from datetime import date
+
+    from job_assistant.cv.master import MasterNotFoundError, load_master
+    from job_assistant.cv.postular import DAY_FOLDER_PREFIX
+    from job_assistant.cv.roles import RolesNotFoundError, load_roles
+    from job_assistant.cv.verify import FAIL, PASS, REVIEW, render_verification, verify_folder
+
+    settings = _settings_or_exit()
+    try:
+        master = load_master(settings.data_dir)
+    except MasterNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    try:
+        roles = load_roles(settings.data_dir)
+    except RolesNotFoundError:
+        roles = None
+    if args.folder:
+        days = [settings.output_dir / args.folder]
+    else:
+        today = date.today()
+        days = sorted(settings.output_dir.glob(f"{DAY_FOLDER_PREFIX} {today.month}-{today.day}*"))
+    folders = [f for day in days if day.is_dir() for f in sorted(day.iterdir()) if f.is_dir()]
+    verdicts = [v for v in (verify_folder(f, master, roles) for f in folders) if v is not None]
+    if not verdicts:
+        print("No resumes found to verify.", file=sys.stderr)
+        return 2
+    report_dir = settings.output_dir / "Verificaciones"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report = report_dir / f"Verificacion {date.today().isoformat()}.md"
+    report.write_text(render_verification(verdicts), encoding="utf-8")
+    counts = {s: sum(1 for v in verdicts if v.status == s) for s in (PASS, REVIEW, FAIL)}
+    print(f"{len(verdicts)} resumes: {counts[PASS]} pasan, {counts[REVIEW]} para revisar, {counts[FAIL]} fallan")
+    for v in verdicts:
+        if v.status != PASS:
+            print(f"  {v.status:8s} {v.name}: " + "; ".join(i.problem for i in v.issues if i.severity != "minor")[:200])
+    print(f"\nReport: {report}")
+    return 1 if counts[FAIL] else 0
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     """Create the folders and starter files for a person; safe to run again."""
     from job_assistant.config import PROJECT_ROOT, profile_dir
@@ -993,6 +1039,8 @@ def main(argv: list[str] | None = None) -> int:
 
     post = sub.add_parser("postular", help="Write a CV for each posting listed in sheet 'Postular'")
     post.add_argument("--row", type=int, help="Process only this Excel row (any status)")
+    post.add_argument("--only-with-description", action="store_true",
+                      help="Skip rows that have no pasted description (they stay untouched for you to complete)")
     post.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS,
                       help=f"Writer <-> HR review rounds (default {DEFAULT_MAX_ROUNDS})")
     post.add_argument("--writer-provider", choices=["anthropic", "deepseek"],
@@ -1001,7 +1049,11 @@ def main(argv: list[str] | None = None) -> int:
                       help="Override REVIEW_PROVIDER for this run")
     post.set_defaults(func=cmd_postular)
 
-    masters = sub.add_parser("masters", help="Write one master resume per target role (data/roles.toml)")
+    verify = sub.add_parser("verify", help="Check generated resumes against the hard filters (no AI, no cost)")
+    verify.add_argument("--folder", help='A day folder under output/, e.g. "Resumenes 10-21" (default: today\'s)')
+    verify.set_defaults(func=cmd_verify)
+
+    masters = sub.add_parser("masters",help="Write one master resume per target role (data/roles.toml)")
     masters.add_argument("--role", help="Only this role (its id or file name, e.g. java-backend)")
     masters.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
     masters.add_argument("--writer-provider", choices=["anthropic", "deepseek"])

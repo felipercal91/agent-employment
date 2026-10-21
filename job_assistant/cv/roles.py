@@ -13,6 +13,7 @@ INDEX_FILENAME = "roles_index.json"
 MASTER_FOLDER = "master_resumes"
 TITLE_HIT = 10  # base points for a title keyword found in the posting's title
 ATS_CAP = 10    # at most this many points from the posting's text
+DEFAULT_ROLE_ID = "java-backend"  # the candidate's core profile: used when a posting gives no signal
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,16 @@ def _ats_hits(role: Role, folded_text: str) -> int:
     return sum(1 for k in role.ats_keywords if _has_term(folded_text, k))
 
 
+def _title_has(folded_title: str, keyword: str) -> bool:
+    """The keyword's words appear next to each other in the title, in any grammatical form
+    (system/systems, engineer/engineering, analyst/analyste)."""
+    title, wanted = _tokens(folded_title), _tokens(_fold(keyword))
+    n = len(wanted)
+    return n > 0 and any(
+        all(_same_word(wanted[j], title[i + j]) for j in range(n)) for i in range(len(title) - n + 1)
+    )
+
+
 def match_role(title: str, jd_text: str, roles: list[Role]) -> RoleMatch:
     """The role whose title keywords best match `title`; the posting's text breaks ties.
 
@@ -95,7 +106,7 @@ def match_role(title: str, jd_text: str, roles: list[Role]) -> RoleMatch:
     folded_title, folded_jd = _fold(title), _fold(jd_text)
     scored: list[tuple[int, int, int, Role, str | None]] = []
     for order, role in enumerate(roles):
-        hits = [k for k in role.title_keywords if _has_term(folded_title, k)]
+        hits = [k for k in role.title_keywords if _title_has(folded_title, k)]
         best = max(hits, key=lambda k: len(k.split()), default=None)
         title_points = TITLE_HIT + len(best.split()) if best else 0
         ats = _ats_hits(role, folded_jd)
@@ -109,7 +120,9 @@ def match_role(title: str, jd_text: str, roles: list[Role]) -> RoleMatch:
     elif top[0] > 0:
         reason = f"Ningún título coincide; se eligió por contenido: {ats} de {len(role.ats_keywords)} palabras clave del rol aparecen en la vacante."
     else:
-        reason = "Sin coincidencia de título ni de palabras clave; se usó el primer rol como base."
+        fallback = next((r for r in roles if r.id == DEFAULT_ROLE_ID), roles[0])
+        role, second = fallback, None
+        reason = f"Sin coincidencia de título ni de palabras clave; se usó «{fallback.name}» como base."
     runner = second[3] if second and second[0] > 0 and second[0] >= top[0] - 3 else None
     if runner:
         reason += f" También calzaba «{runner.name}»; se prefirió este por ser más cercano al título."

@@ -418,3 +418,32 @@ def test_rebuilding_one_role_keeps_the_rest_of_the_index_and_report(
     assert report.count("## Backend Developer (Java)") == 1 and "HR score 7.0/10" in report
     assert json.loads(load_master_content(out, roles[2]))["title"] == "REBUILT"
     assert json.loads(load_master_content(out, roles[0]))["title"] == "Senior Java Developer"  # untouched
+
+
+# ---- title matching tolerates the variants real postings use -----------------------------------
+
+
+@pytest.mark.parametrize(("title", "expected"), [
+    ("Senior Business System Analyst, Enterprise Platforms", "bsa"),   # system, not systems
+    ("Sr Consultant - Business System Analyst", "bsa"),
+    ("Systems Analyst (Insurance)", "bsa"),
+    ("Lead Software Engineering Manager", "lead"),                       # engineering matches engineer
+])
+def test_match_role_accepts_singular_plural_and_word_forms(roles: list[Role], title: str, expected: str) -> None:
+    assert match_role(title, "", roles).role.id == expected
+
+
+def test_posting_without_any_signal_uses_the_default_role(roles: list[Role]) -> None:
+    default = Role("java-backend", "Backend Developer (Java)", "Backend", "Dev", ("Java Developer",), ("Java",), "x")
+    m = match_role("Chef de cuisine", "Cook meals.", [*roles, default])
+    assert m.role.id == "java-backend" and "Sin coincidencia" in m.reason and m.runner_up is None
+
+
+def test_pending_rows_can_leave_rows_without_a_description_untouched(sheet_path: Path) -> None:
+    add_row(sheet_path, link="https://a")                                            # no description
+    add_row(sheet_path, link="https://b", description="x" * 250)                      # full description
+    add_row(sheet_path, link="https://c", description="too short")
+    add_row(sheet_path, link="https://d", description="y" * 250, status="Aplicado")   # not pending at all
+    assert [r["link"] for r in postular.pending_rows(sheet_path)] == ["https://a", "https://b", "https://c"]
+    only = postular.pending_rows(sheet_path, require_description=True)
+    assert [r["link"] for r in only] == ["https://b"]

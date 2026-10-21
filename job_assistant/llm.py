@@ -22,6 +22,8 @@ from job_assistant.config import ConfigError, Settings
 T = TypeVar("T", bound=BaseModel)
 
 PROVIDERS = ("anthropic", "deepseek")
+DEEPSEEK_TIMEOUT_SECONDS = 150.0
+DEEPSEEK_MAX_RETRIES = 4
 
 
 def get_chat_model(
@@ -47,6 +49,10 @@ def get_chat_model(
             max_tokens=max_tokens,
             callbacks=callbacks,
             extra_body=None if reasoning else {"thinking": {"type": "disabled"}},
+            # A stalled request used to hang for the SDK default (10 minutes) before failing the row.
+            # A normal call takes 15-60 seconds: give up on a stuck one early and retry it.
+            timeout=DEEPSEEK_TIMEOUT_SECONDS,
+            max_retries=DEEPSEEK_MAX_RETRIES,
         )
     if provider != "anthropic":
         raise ConfigError(f"Unknown provider '{provider}' (use one of: {', '.join(PROVIDERS)}).")

@@ -132,11 +132,16 @@ def ensure_sheet(path: Path) -> bool:
     return True
 
 
-def pending_rows(path: Path, only_row: int | None = None) -> list[dict[str, Any]]:
+def pending_rows(path: Path, only_row: int | None = None, require_description: bool = False) -> list[dict[str, Any]]:
+    """Rows still to process. With `require_description`, rows whose pasted description is shorter than a
+    real posting are left untouched (their status stays empty) so the user can paste it and run again."""
     rows = [r for r in table(path).rows() if (r.get("link") or r.get("description"))]
     if only_row is not None:
         return [r for r in rows if r["_row"] == only_row]
-    return [r for r in rows if str(r.get("status") or "").strip().lower() in STATUS_TODO]
+    todo = [r for r in rows if str(r.get("status") or "").strip().lower() in STATUS_TODO]
+    if require_description:
+        todo = [r for r in todo if len(str(r.get("description") or "").strip()) >= MIN_FULL_DESCRIPTION]
+    return todo
 
 
 def choose_language(row_value: object, jd_text: str) -> Language:

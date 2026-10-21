@@ -129,6 +129,7 @@ def test_get_chat_model_per_provider(tmp_path: Path, monkeypatch: pytest.MonkeyP
     ds = get_chat_model(s, provider="deepseek")
     assert isinstance(ds, ChatDeepSeek) and ds.model_name == "deepseek-flash"
     assert ds.extra_body == {"thinking": {"type": "disabled"}}  # reasoning off by default
+    assert ds.request_timeout == 150.0 and ds.max_retries == 4  # a stuck request fails fast and is retried
     assert isinstance(structured_llm(ds, Answer), JsonModeStructured)
     with pytest.raises(ConfigError):
         get_chat_model(settings_from(tmp_path, monkeypatch, ""), provider="deepseek")
