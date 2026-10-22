@@ -447,3 +447,25 @@ def test_pending_rows_can_leave_rows_without_a_description_untouched(sheet_path:
     assert [r["link"] for r in postular.pending_rows(sheet_path)] == ["https://a", "https://b", "https://c"]
     only = postular.pending_rows(sheet_path, require_description=True)
     assert [r["link"] for r in only] == ["https://b"]
+
+
+def test_skill_names_keep_slash_names_whole() -> None:
+    from job_assistant.cv.checks import _skill_names
+
+    assert _skill_names("Oracle PL/SQL") == ["Oracle PL/SQL"]
+    assert _skill_names("HTML/CSS") == ["HTML/CSS"]
+    assert _skill_names("Git & GitHub") == ["Git", "GitHub"]
+    assert _skill_names("Java (J2EE, JSP)") == ["Java"]
+
+
+def test_a_slash_tool_listed_only_as_a_skill_is_flagged_by_its_full_name() -> None:
+    master = _skills_master()
+    master.raw["skills"]["tools_en"] = [*master.raw["skills"]["tools_en"], "Oracle PL/SQL"]
+    bad = _resume(("a", "Tuned SQL Server and Oracle PL/SQL data layers."))
+    assert skills_only_claims(bad, master, "en") == ["Oracle PL/SQL"]
+
+
+def test_title_with_a_typographic_apostrophe_matches_the_plain_keyword(roles: list[Role]) -> None:
+    curly = "Analyste d’affaires en gestion des demandes"
+    m = match_role(curly, "", roles)
+    assert m.role.id == "bsa" and "Analyste d'affaires" in m.reason

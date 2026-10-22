@@ -835,7 +835,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 2
     report_dir = settings.output_dir / "Verificaciones"
     report_dir.mkdir(parents=True, exist_ok=True)
-    report = report_dir / f"Verificacion {date.today().isoformat()}.md"
+    # One report per verified folder (or per day when scanning today's folders): never overwrite another one.
+    report = report_dir / f"Verificacion {args.folder or date.today().isoformat()}.md"
     report.write_text(render_verification(verdicts), encoding="utf-8")
     counts = {s: sum(1 for v in verdicts if v.status == s) for s in (PASS, REVIEW, FAIL)}
     print(f"{len(verdicts)} resumes: {counts[PASS]} pasan, {counts[REVIEW]} para revisar, {counts[FAIL]} fallan")

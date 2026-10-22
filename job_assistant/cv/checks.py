@@ -159,7 +159,8 @@ def banned_terms_found(content: ResumeContent, terms: list[str]) -> list[str]:
 def _skill_names(item: str) -> list[str]:
     """Names inside a skills-list entry: "Git & GitHub" -> Git, GitHub; "Java (J2EE, JSP)" -> Java."""
     base = re.sub(r"\(.*?\)", "", item)
-    return [n.strip() for n in re.split(r"\s+(?:&|et|and)\s+|/", base) if len(n.strip()) >= 3]
+    # "/" is not a separator: "Oracle PL/SQL" and "HTML/CSS" are single names.
+    return [n.strip() for n in re.split(r"\s+(?:&|et|and)\s+", base) if len(n.strip()) >= 3]
 
 
 def _has_name(name: str, text: str) -> bool:

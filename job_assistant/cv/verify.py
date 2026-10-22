@@ -54,7 +54,9 @@ def verify_resume(
 ) -> Verdict:
     source = master.source_text(lang)
     quebec = detect_market(jd_text, location, company).is_quebec
-    issues = list(run_checks(content, lang, source, jd_text, pages, quebec, master))
+    # The skills-only claim is re-reported below as a blocker; drop the softer copy from run_checks.
+    issues = [f for f in run_checks(content, lang, source, jd_text, pages, quebec, master)
+              if not f.problem.startswith("Tools claimed in a bullet")]
     if pages > MAX_PAGES:
         issues.append(Finding("blocker", f"The PDF has {pages} pages (maximum {MAX_PAGES}).", "Cut weaker bullets."))
     claimed = skills_only_claims(content, master, lang)

@@ -108,7 +108,11 @@ class JsonModeStructured:
             text = fenced.group(1)
         if not text:
             raise ValueError("the reply was empty")
-        return self._schema.model_validate(json.loads(text))
+        # Take the first JSON object and ignore anything after it: a model sometimes appends a second
+        # object or a comment, and rejecting a complete valid reply wasted the whole row.
+        start = text.find("{")
+        value, _end = json.JSONDecoder().raw_decode(text[start:] if start >= 0 else text)
+        return self._schema.model_validate(value)
 
     def invoke(self, messages: list[BaseMessage], **kwargs: Any) -> BaseModel:
         conversation = self._with_instruction(list(messages))

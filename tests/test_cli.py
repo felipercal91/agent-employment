@@ -191,3 +191,18 @@ def test_claude_api_can_be_switched_off(tmp_path: Path, monkeypatch: pytest.Monk
 
     with pytest.raises(ConfigError):
         check_connection(off)                                         # no network call is made
+
+
+def test_json_mode_ignores_text_after_the_first_object() -> None:
+    nl = chr(10)
+    trailing = '{"city": "Quebec", "notes": ["a"]}' + nl + '{"city": "Other", "notes": []}'
+    commented = 'Here you go: {"city": "Laval", "notes": []}' + nl + "Hope that helps."
+    for reply, city in ((trailing, "Quebec"), (commented, "Laval")):
+        llm = FakeListChatModel(responses=[reply])
+        assert JsonModeStructured(llm, Answer, retries=0).invoke([HumanMessage("x")]).city == city
+
+
+def test_json_mode_still_rejects_a_reply_that_is_not_json() -> None:
+    llm = FakeListChatModel(responses=["no braces here"])
+    with pytest.raises(ValueError, match="did not return valid JSON"):
+        JsonModeStructured(llm, Answer, retries=0).invoke([HumanMessage("x")])

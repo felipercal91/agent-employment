@@ -76,6 +76,8 @@ def load_roles(data_dir: Path) -> list[Role]:
 
 
 def _fold(text: str) -> str:
+    # Typographic apostrophes (d’affaires) must become plain ones, or the ASCII fold would glue "d" to the next word.
+    text = text.replace("’", "'").replace("‘", "'").replace("ʼ", "'")
     raw = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return re.sub(r"\s+", " ", raw).casefold().strip()
 
