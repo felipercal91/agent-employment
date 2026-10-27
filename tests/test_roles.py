@@ -469,3 +469,14 @@ def test_title_with_a_typographic_apostrophe_matches_the_plain_keyword(roles: li
     curly = "Analyste d’affaires en gestion des demandes"
     m = match_role(curly, "", roles)
     assert m.role.id == "bsa" and "Analyste d'affaires" in m.reason
+
+
+def test_a_skills_only_tool_in_a_bullet_is_a_blocker_so_the_writer_must_redo_the_draft() -> None:
+    from job_assistant.cv.checks import run_checks
+
+    master = _skills_master()
+    bad = _resume(("a", "Performed REST API checks in Postman across SQL Server."))
+    master.raw.update({"education": {"en": []}, "certifications": {"en": ""}, "languages": {"en": ""}})
+    findings = run_checks(bad, "en", master.source_text("en"), "We need Spring Boot.", 2, False, master)
+    claim = [f for f in findings if f.problem.startswith("Tools claimed in a bullet")]
+    assert claim and claim[0].severity == "blocker" and "Postman" in claim[0].problem

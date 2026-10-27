@@ -244,7 +244,8 @@ def run_checks(
     if master is not None:
         skills_only = skills_only_claims(content, master, lang)
         if skills_only:
-            findings.append(Finding("major", f"Tools claimed in a bullet that the facts of that job do not mention: {', '.join(skills_only)}",
+            # A blocker: it forces the writer to redo the draft instead of shipping a claim the facts lack.
+            findings.append(Finding("blocker", f"Tools claimed in a bullet that the facts of that job do not mention: {', '.join(skills_only)}",
                                     "Keep them in the Tools line only, or use the job's own facts."))
         upgrades = leadership_upgrades(content, master, lang)
         if upgrades:
