@@ -8,11 +8,11 @@ scores and issues plus the deterministic checks.
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel, PrivateAttr, field_validator
+from pydantic import BaseModel, PrivateAttr, field_validator, model_validator
 
 from job_assistant.llm import structured_llm
 from job_assistant.cv.checks import Finding
@@ -136,6 +136,15 @@ class HRReview(BaseModel):
     gaps_cannot_fix: list[str]
     likely_interview_questions: list[str]
     notes_for_candidate: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_secondary_fields(cls, data: Any) -> Any:
+        """A reply with scores and issues but missing the closing notes is still a usable review:
+        rejecting it lost the whole row. The fields stay required in the schema the model is shown."""
+        if isinstance(data, dict):
+            return {"gaps_cannot_fix": [], "likely_interview_questions": [], "notes_for_candidate": "", **data}
+        return data
 
 
 def passes(review: HRReview, findings: list[Finding]) -> bool:

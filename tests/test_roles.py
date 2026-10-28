@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from job_assistant.agents.hr_reviewer import HRReview
 from job_assistant.agents.resume_writer import SYSTEM_PROMPT, build_messages
 from job_assistant.cv import postular
 from job_assistant.cv.checks import skills_only_claims
@@ -480,3 +481,13 @@ def test_a_skills_only_tool_in_a_bullet_is_a_blocker_so_the_writer_must_redo_the
     findings = run_checks(bad, "en", master.source_text("en"), "We need Spring Boot.", 2, False, master)
     claim = [f for f in findings if f.problem.startswith("Tools claimed in a bullet")]
     assert claim and claim[0].severity == "blocker" and "Postman" in claim[0].problem
+
+
+def test_a_review_missing_its_closing_notes_is_still_usable() -> None:
+    full = review(8).model_dump()
+    partial = {"scores": full["scores"], "issues": full["issues"]}   # the model stopped after the issues
+    result = HRReview.model_validate(partial)
+    assert result.scores.average() == review(8).scores.average()
+    assert result.gaps_cannot_fix == [] and result.likely_interview_questions == [] and result.notes_for_candidate == ""
+    with pytest.raises(Exception):  # scores and issues are NOT optional: without them there is no review
+        HRReview.model_validate({"notes_for_candidate": "x"})
