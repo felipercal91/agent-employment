@@ -491,3 +491,10 @@ def test_a_review_missing_its_closing_notes_is_still_usable() -> None:
     assert result.gaps_cannot_fix == [] and result.likely_interview_questions == [] and result.notes_for_candidate == ""
     with pytest.raises(Exception):  # scores and issues are NOT optional: without them there is no review
         HRReview.model_validate({"notes_for_candidate": "x"})
+
+
+def test_french_functional_analyst_titles_with_a_seniority_word_in_the_middle(roles: list[Role]) -> None:
+    fr = Role("bsa-fr", "BSA", "BSA-FR", "BSA", ("Analyste principal fonctionnel",), ("UAT",), "x")
+    other = Role("qa", "QA", "QA", "QA", ("Analyste QA",), ("UAT",), "x")
+    for title in ("Analyste principal fonctionnel domaine commercial", "Analyste principal(e) fonctionnel(le)"):
+        assert match_role(title, "", [other, fr]).role.id == "bsa-fr"
