@@ -26,6 +26,8 @@ class Role:
     ats_keywords: tuple[str, ...]
     focus: str
     verify_terms: tuple[str, ...] = ()  # claims that must appear in the facts to be used
+    must_include: tuple[str, ...] = ()  # "job_id:term": a master bullet of that job with the term is always kept
+    exclude_jobs: tuple[str, ...] = ()  # job ids this role's resume never shows
 
     @property
     def pdf_name(self) -> str:
@@ -50,6 +52,7 @@ class RoleBase:
 
     role: Role
     master_json: str = ""
+    fixed_headline: bool = False  # writing the master itself: its title is the role's headline, set in code
 
 
 class RolesNotFoundError(FileNotFoundError):
@@ -67,6 +70,7 @@ def load_roles(data_dir: Path) -> list[Role]:
             id=r["id"], name=r["name"], file_name=r["file_name"], headline=r["headline"],
             title_keywords=tuple(r["title_keywords"]), ats_keywords=tuple(r["ats_keywords"]), focus=r["focus"],
             verify_terms=tuple(r.get("verify_terms", [])),
+            must_include=tuple(r.get("must_include", [])), exclude_jobs=tuple(r.get("exclude_jobs", [])),
         )
         for r in raw.get("roles", [])
     ]
@@ -169,7 +173,9 @@ def coverage(role: Role, source_text: str) -> tuple[list[str], list[str]]:
 
 def ungrounded_terms(role: Role, resume_text: str, source_text: str) -> list[str]:
     """Role terms that appear in the resume but nowhere in the candidate's facts (claims he cannot make)."""
-    resume, source = _fold(resume_text), _fold(source_text)
+    # A sentence that says the experience "transfers" to the product names it without claiming it.
+    claims = " ".join(s for s in re.split(r"(?<=[.!?])\s+", resume_text) if "transfer" not in s.lower())
+    resume, source = _fold(claims), _fold(source_text)
     return [t for t in role.verify_terms if _has_term(resume, t) and not _has_term(source, t)]
 
 

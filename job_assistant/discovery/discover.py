@@ -17,7 +17,7 @@ from job_assistant.tracker.excel import Tracker, normalize_company, normalize_li
 CONFIG_FILENAME = "discovery.toml"
 
 DEFAULT_TITLE_INCLUDE = [r"\bjava\b", r"back[- ]?end", r"d[ée]veloppeur", r"spring", r"software (developer|engineer)"]
-DEFAULT_TITLE_EXCLUDE = [r"\bjunior\b", r"\bintern", r"\bstage\b", r"\bstagiaire\b", r"\bco-?op\b",
+DEFAULT_TITLE_EXCLUDE = [r"\bjunior\b", r"\bjr\.?\b", r"\bintern", r"\bstage\b", r"\bstagiaire\b", r"\bco-?op\b",
                          r"new grad", r"\bmobile\b", r"front[- ]?end",
                          r"\bmanager\b", r"\bdirector\b", r"\bsales\b", r"\bandroid\b", r"\bios\b"]
 # Toronto (+GTA), London ON, Montréal (+Laval), Québec City, and remote within Canada.
@@ -41,8 +41,9 @@ class DiscoveryConfig:
     locations: list[str] = field(default_factory=lambda: list(DEFAULT_LOCATIONS))
     min_fit: int = 50
     require_any_keyword: list[str] = field(default_factory=lambda: list(DEFAULT_REQUIRE_ANY))
-    max_age_days: int = 21  # board postings published longer ago are skipped (when the date is known)
+    max_age_days: int = 14  # board postings published longer ago are skipped (when the date is known)
     daily_max_new: int = 15  # at most this many new postings are added to the Postular sheet per day
+    salary_floor_cad: int = 85_000  # minimum annual CAD salary (range overlap qualifies); below goes to Revisar
 
 
 def load_config(data_dir: Path) -> DiscoveryConfig:
@@ -62,6 +63,7 @@ def load_config(data_dir: Path) -> DiscoveryConfig:
         require_any_keyword=filters.get("require_any_keyword", defaults.require_any_keyword),
         max_age_days=int(filters.get("max_age_days", defaults.max_age_days)),
         daily_max_new=int(filters.get("daily_max_new", defaults.daily_max_new)),
+        salary_floor_cad=int(filters.get("salary_floor_cad", defaults.salary_floor_cad)),
     )
 
 

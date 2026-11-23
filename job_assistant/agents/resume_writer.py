@@ -24,6 +24,13 @@ _LANGUAGE_RULES = {
         "'Développeur' (e.g. 'Développeur Java sénior'), never 'Ingénieur' or 'Engineer': "
         "'ingénieur' is a protected title in Quebec (OIQ) and the candidate is not a member."
     ),
+    "es": (
+        "Write in professional Chilean Spanish (the resume is for a posting in Chile). Use Chilean job "
+        "titles for the headline: 'Analista Funcional', 'Analista de Negocios', 'Líder Técnico', "
+        "'Ingeniero de Soporte', 'Desarrollador Java', 'Analista de Datos'. Keep technology names, "
+        "certifications and the English job titles in the facts as they are. Bullets in the first person "
+        "implied, past tense (Lideré, Diseñé, Implementé); never use 'yo'. Never invent or upgrade a title."
+    ),
 }
 # For a candidate whose field has nothing to do with engineering (`protect_engineer_title = false`).
 _FRENCH_GENERIC = (
@@ -37,9 +44,9 @@ QUEBEC_EN_RULE = (
 )
 
 
-def standing_rules(master: CVMaster) -> str:
+def standing_rules(master: CVMaster, lang: Language = "en") -> str:
     """The person's own permanent rules (cv_master.toml [meta] extra_rules), appended to the prompt."""
-    rules = master.extra_rules()
+    rules = master.extra_rules(lang)
     if not rules:
         return ""
     bullets = "\n".join(f"- {r}" for r in rules)
@@ -47,6 +54,8 @@ def standing_rules(master: CVMaster) -> str:
 
 
 def language_rule(lang: Language, protect_engineer_title: bool, quebec: bool) -> str:
+    if lang == "es":
+        return _LANGUAGE_RULES["es"]
     if not protect_engineer_title:
         return _LANGUAGE_RULES["en"] if lang == "en" else _FRENCH_GENERIC
     return _LANGUAGE_RULES[lang] + (QUEBEC_EN_RULE if quebec and lang == "en" else "")
@@ -78,12 +87,15 @@ plainly: never invent a measure. One or two lines; no filler adjectives, no pass
 - Mirror the posting's vocabulary only where the facts support it (e.g. use the posting's own term for a \
 tool or practice when the facts show it).
 - Headline: the candidate's real level and stack, aligned with the posting's title when truthful.
-- Summary: 3-4 sentences, max 90 words, specific to this posting, first person implied (no "I").
+- Summary: about 3 lines (3 sentences, max 60 words), specific to this posting, first person implied (no "I"). \
+It states ONE profile, the one in the headline: never two profiles ("developer and analyst") and never \
+"now targeting ... roles".
+- Each job's technology stack is printed automatically under its bullets: never write a Stack line.
 - Competencies: 6-8 capabilities the posting cares about (e.g. the posting's key skills \
 and areas, in its own words), not a copy of the Tools line; avoid repeating the \
 same item across competencies, tools and methodologies.
-- Years: "13+ years" describes the whole career. Never attach a long duration to a specific \
-technology unless the job dates in the facts support it (check which job mentions it and when).
+- Years and tenure (CRITICAL): "13+ years" describes overall software engineering / IT / insurance technology career experience (or Java). NEVER attach "13+ years" to Spring Boot (the candidate has 13+ years in software engineering/Java/insurance technology, but only 5 years with Spring Boot, from 2021). Spring Boot must either be stated separately as "5 years" or listed without a year count (e.g. "Software engineer with 13+ years in insurance technology, building production backend services in Java 8/17, including 5 years with Spring Boot microservices").
+- Honest titles with 13+ years: Never claim the candidate is a "[Title] with 13+ years" for a role the candidate never held for 13+ years (such as "Business Systems Analyst with 13+ years" or "Senior Data Engineer with 13+ years"). For analyst roles, open with: "Software engineer and technical lead with 13+ years in insurance technology, with strong requirements analysis and stakeholder experience". For data roles, open with: "Software engineer with 13+ years in insurance technology, including SQL, data migration and ETL work".
 - Experience: one entry per job id, in the facts' order. For an individual-contributor posting, \
 lead each job with hands-on technical work, then leadership. Never merge unrelated \
 achievements into one bullet. The whole CV must fit on 2 pages.
@@ -116,6 +128,7 @@ def _facts(master: CVMaster, lang: Language) -> str:
     jobs = "\n\n".join(
         f"[job_id: {j.id}] {j.title} | {j.company} | {j.location} | {j.dates}\n"
         + "\n".join(f"- {b}" for b in j.bullets)
+        + (f"\nStack (printed automatically under the job, never write it yourself): {', '.join(j.stack)}" if j.stack else "")
         for j in master.jobs(lang)
     )
     return (
@@ -157,7 +170,7 @@ def build_messages(
         SystemMessage(SYSTEM_PROMPT.format(
             language_rule=language_rule(lang, master.protect_engineer_title(), quebec),
             field=master.field(),
-        ) + standing_rules(master)),
+        ) + standing_rules(master, lang)),
         HumanMessage("\n\n".join(parts)),
     ]
 
@@ -165,13 +178,31 @@ def build_messages(
 def _role_block(base: RoleBase, lang: Language) -> str:
     role = base.role
     text = (
-        f"<target_role>\nRole: {role.name}\nATS keywords of this role: {', '.join(role.ats_keywords)}\n"
+        f"<target_role>\nRole: {role.name}\nHeadline for this role: {role.headline} (adapt it only to the "
+        "posting's own title).\n"
+        "Summary rules for this role:\n"
+        "- Never attach '13+ years' to a title the candidate did not hold for 13+ years. Specifically, NEVER write "
+        "'Business Systems Analyst with 13+ years' or 'Data Engineer with 13+ years'. For BSA/analyst roles, open "
+        "with 'Software engineer and technical lead with 13+ years in insurance technology, with strong requirements "
+        "analysis and stakeholder experience'. For data roles, open with 'Software engineer with 13+ years in insurance "
+        "technology, including SQL, data migration and ETL work'.\n"
+        "- Never attach '13+ years' to Spring Boot: candidate has 13+ years in software engineering/Java/insurance "
+        "technology, but only 5 years with Spring Boot. Either state Spring Boot separately as '5 years' or list it "
+        "without a year count (e.g. 'Software engineer with 13+ years in insurance technology, building production "
+        "backend services in Java 8/17, including 5 years with Spring Boot microservices').\n"
+        f"ATS keywords of this role: {', '.join(role.ats_keywords)}\n"
         f"Emphasis: {role.focus}\n"
         "Mirror one of these keywords ONLY when the facts support it; the others stay out of the resume. "
         "The summary must be specific to this role and must not read like any other role's summary.\n"
     )
+    if role.exclude_jobs:
+        text += f"Leave these jobs out of the resume entirely (do not return an entry for them): {', '.join(role.exclude_jobs)}.\n"
+    if role.must_include:
+        text += ("These master bullets must stay in the resume (keep them, you may reword them to the posting): "
+                 + "; ".join(f"job {r.partition(':')[0]} bullet about {r.partition(':')[2]}" for r in role.must_include) + ".\n")
     if base.master_json:
-        guide = "; write the result in French from the facts, the master is only a guide to emphasis" if lang == "fr" else ""
+        guide = (f"; write the result in {'French' if lang == 'fr' else 'Spanish'} from the facts, the master is only a guide to emphasis"
+                 if lang != "en" else "")
         text += (
             "\nThis candidate's master resume for the role (English), the starting point to adapt to the "
             "posting. Reorder, reword and mirror the posting's keywords; keep what already fits; never "

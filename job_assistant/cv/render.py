@@ -19,12 +19,21 @@ LABELS = {
         "experience": "PROFESSIONAL EXPERIENCE", "education": "EDUCATION",
         "skills": "CERTIFICATIONS & TECHNICAL SKILLS", "certs": "Certifications:",
         "tools": "Tools & Technology:", "methods": "Methodologies:", "languages": "Languages:",
+        "familiar": "Familiar with / training:", "stack": "Stack:",
     },
     "fr": {
         "summary": "SOMMAIRE PROFESSIONNEL", "competencies": "COMPÉTENCES CLÉS",
         "experience": "EXPÉRIENCE PROFESSIONNELLE", "education": "FORMATION",
         "skills": "CERTIFICATIONS ET COMPÉTENCES TECHNIQUES", "certs": "Certifications :",
         "tools": "Outils et technologies :", "methods": "Méthodologies :", "languages": "Langues :",
+        "familiar": "Notions / formation :", "stack": "Stack technique :",
+    },
+    "es": {
+        "summary": "RESUMEN PROFESIONAL", "competencies": "COMPETENCIAS CLAVE",
+        "experience": "EXPERIENCIA PROFESIONAL", "education": "EDUCACIÓN",
+        "skills": "CERTIFICACIONES Y HABILIDADES TÉCNICAS", "certs": "Certificaciones:",
+        "tools": "Herramientas y tecnologías:", "methods": "Metodologías:", "languages": "Idiomas:",
+        "familiar": "Conocimientos / capacitación:", "stack": "Stack técnico:",
     },
 }
 
@@ -46,6 +55,9 @@ p { margin: 0; }
 ul { margin: 2px 0 0 0; padding-left: 16px; }
 li { margin: 1.5px 0; padding-left: 2px; }
 .line { margin: 2px 0; }
+.stack { margin: 2px 0 0 0; }
+.block { break-inside: avoid-page; }
+h2 { break-after: avoid-page; }
 """
 
 
@@ -55,14 +67,15 @@ def _e(text: str) -> str:
 
 def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
     L = dict(LABELS[lang])
-    for key in ("tools", "methods"):
+    for key in ("tools", "methods", "familiar"):
         L[key] = master.label(key, lang, L[key])
     L = {k: _e(v) for k, v in L.items()}  # labels reach the HTML: escape the & in "Tools & Technology"
     def skill_line(label: str, items: list[str]) -> str:  # an empty list prints no empty label
         return f'<p class="line"><b>{label}</b> {_e(", ".join(items))}</p>' if items else ""
 
-    c = master.contact
-    contact = " | ".join(_e(c[k]) for k in ("location", "phone", "email", "linkedin") if c.get(k))
+    c = master.contact_for(lang)  # Chile (es): no mailing address, no Canadian work authorization
+    order = ("email", "phone", "linkedin") if lang == "es" else ("email", "linkedin", "location", "phone")
+    contact = " | ".join(_e(c[k]) for k in order if c.get(k))
     jobs = {j.id: j for j in master.jobs(lang)}
     authorization = _e(str(c.get(f"work_authorization_{lang}") or c.get("work_authorization") or ""))
     authorization_html = f'<p class="contact">{authorization}</p>' if authorization else ""
@@ -74,10 +87,11 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
             f"<li><b>{_e(b.lead)}</b> {_e(b.rest)}</li>" if b.lead else f"<li>{_e(b.rest)}</li>"
             for b in entry.bullets
         )
+        stack = f'<p class="stack"><b>{L["stack"]}</b> {_e(", ".join(job.stack))}</p>' if job.stack else ""
         exp_html.append(
             f'<div class="job"><div class="job-head"><span>{_e(job.title)}</span>'
             f'<span class="dates">{_e(job.dates)}</span></div>'
-            f'<div class="company">{_e(job.company)} | {_e(job.location)}</div><ul>{bullets}</ul></div>'
+            f'<div class="company">{_e(job.company)} | {_e(job.location)}</div><ul>{bullets}</ul>{stack}</div>'
         )
 
     education = "".join(f'<p class="line">{_e(strip_dashes(e))}</p>' for e in master.education(lang))
@@ -88,11 +102,12 @@ def build_html(master: CVMaster, content: ResumeContent, lang: Language) -> str:
 <h2>{L['summary']}</h2><p>{_e(content.summary)}</p>
 <h2>{L['competencies']}</h2><p>{' • '.join(_e(x) for x in content.competencies)}</p>
 <h2>{L['experience']}</h2>{''.join(exp_html)}
-<h2>{L['education']}</h2>{education}
+<div class="block"><h2>{L['education']}</h2>{education}</div>
 <h2>{L['skills']}</h2>
 <p class="line"><b>{L['certs']}</b> {_e(strip_dashes(master.certifications(lang)))}</p>
 {skill_line(L['tools'], content.tools)}
 {skill_line(L['methods'], content.methodologies)}
+{skill_line(L['familiar'], master.familiar(lang))}
 <p class="line"><b>{L['languages']}</b> {_e(master.languages(lang))}</p>
 </body></html>"""
 

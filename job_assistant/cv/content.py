@@ -35,7 +35,7 @@ class ResumeContent(BaseModel):
         default_factory=list, description="The 5-8 key requirements of the posting mapped to the facts"
     )
     title: str = Field(description="Headline under the name, e.g. 'Senior Java Developer'")
-    summary: str = Field(description="Professional summary, 3-4 sentences, at most 90 words")
+    summary: str = Field(description="Professional summary, about 3 lines: 3 sentences, at most 60 words")
     competencies: list[str] = Field(description="8-12 core competencies, most relevant first")
     experience: list[JobBullets] = Field(description="One entry per job id, in the facts' order")
     tools: list[str] = Field(description="Tools & Technology, chosen ONLY from the facts' list, most relevant first")

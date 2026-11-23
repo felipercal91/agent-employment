@@ -44,7 +44,7 @@ def build_master(
     pdf = out_dir / role.pdf_name
     result = generate_resume(
         synthetic_posting(role), master, "en", writer, reviewer, pdf, "", max_rounds, renderer,
-        role_base=RoleBase(role),
+        role_base=RoleBase(role, fixed_headline=True),
     )
     content_file = out_dir / role.content_name
     content_file.write_text(result.content.model_dump_json(indent=2), encoding="utf-8")

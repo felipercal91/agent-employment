@@ -73,6 +73,11 @@ _LANGUAGE_RULES = {
         "The CV is in Quebec French: also check the French quality, and that no job title uses "
         "'Ingénieur' or 'Engineer' (protected title in Quebec)."
     ),
+    "es": (
+        "The CV is in professional Chilean Spanish, for a posting in Chile: also check the Spanish quality "
+        "and that it reads naturally in Chile. Technology names and the English job titles from the facts "
+        "stay as they are."
+    ),
 }
 _FRENCH_GENERIC = "The CV is in Quebec French: also check the French quality."
 
@@ -176,12 +181,16 @@ def render_cv_text(content: ResumeContent, master: CVMaster, lang: Language) -> 
         j = jobs[entry.job_id]
         lines.append(f"{j.title} | {j.company} | {j.location} | {j.dates}")
         lines += [f"- {b.text()}" for b in entry.bullets]
+        if j.stack:
+            lines.append("Stack: " + ", ".join(j.stack))
         lines.append("")
     lines += ["Education: " + "; ".join(master.education(lang)),
               "Certifications: " + master.certifications(lang),
               "Tools: " + ", ".join(content.tools),
-              "Methodologies: " + ", ".join(content.methodologies),
-              "Languages: " + master.languages(lang)]
+              "Methodologies: " + ", ".join(content.methodologies)]
+    if master.familiar(lang):
+        lines.append("Familiar with / training: " + ", ".join(master.familiar(lang)))
+    lines.append("Languages: " + master.languages(lang))
     return "\n".join(lines)
 
 
@@ -191,12 +200,18 @@ def build_messages(
 ) -> list[BaseMessage]:
     auto = "\n".join(f"- [{f.severity}] {f.problem}" for f in findings) or "- none"
     day = (today or date.today()).isoformat()
+    facts = master.source_text(lang)
+    if master.familiar(lang):
+        # Kept out of source_text (the keyword and grounding checks must not treat them as skills the
+        # candidate has), but the reviewer sees the printed line and must know it is allowed.
+        facts += ("\nFamiliar with / training only, NOT professional experience (allowed on the CV only on "
+                  "that line): " + ", ".join(master.familiar(lang)))
     return [
         SystemMessage(SYSTEM_PROMPT.format(language_rule=language_rule(lang, master), today=day,
                                            field=master.field())),
         HumanMessage(
             f"<job_posting>\n{jd_text}\n</job_posting>\n\n"
-            f"<facts>\n{master.source_text(lang)}\n</facts>\n\n"
+            f"<facts>\n{facts}\n</facts>\n\n"
             f"<cv>\n{render_cv_text(content, master, lang)}\n</cv>\n\n"
             f"<automatic_checks>\n{auto}\n</automatic_checks>"
         ),

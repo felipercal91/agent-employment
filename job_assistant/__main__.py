@@ -587,8 +587,11 @@ def cmd_postular(args: argparse.Namespace) -> int:
     if not path.is_file():
         print(f"Tracker not found at {path}. Run `tracker init` first.", file=sys.stderr)
         return 2
+    sheet_name = getattr(args, "sheet", None) or postular.SHEET
     try:
-        if postular.ensure_sheet(path):
+        if sheet_name != postular.SHEET:  # another sheet (e.g. "Postular Chile"): it must exist; add its missing columns
+            postular.ensure_columns(path, sheet_name)
+        elif postular.ensure_sheet(path):
             print(f"Created sheet '{postular.SHEET}' in {path.name}. Add your postings (at least the "
                   "Link column) and run `postular` again.")
             return 0
@@ -598,9 +601,9 @@ def cmd_postular(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 2
 
-    rows = postular.pending_rows(path, args.row, getattr(args, "only_with_description", False))
+    rows = postular.pending_rows(path, args.row, getattr(args, "only_with_description", False), sheet_name)
     if getattr(args, "only_with_description", False):
-        skipped = len(postular.pending_rows(path, args.row)) - len(rows)
+        skipped = len(postular.pending_rows(path, args.row, sheet=sheet_name)) - len(rows)
         if skipped:
             print(f"Skipping {skipped} row(s) without a pasted description (paste it, then run again).")
     if not rows:
@@ -642,44 +645,89 @@ def cmd_postular(args: argparse.Namespace) -> int:
     if roles and not masters_dir.is_dir():
         print(f"Note: {masters_dir} does not exist yet; run `masters` first so each resume starts from its "
               "role's master.")
-    print(f"Processing {len(rows)} posting(s). Each one: requirements check, writer <-> HR review "
+    workers = max(1, getattr(args, "workers", 1) or 1)
+    print(f"Processing {len(rows)} posting(s) with {workers} worker(s). Each one: requirements check, writer <-> HR review "
           f"(max {args.max_rounds} rounds), PDF.")
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     used: list[tuple[int, str, str]] = []
+    used_lock = threading.Lock()
     failures = 0
-    for row in rows:
+    failures_lock = threading.Lock()
+    print_lock = threading.Lock()
+    account_error_event = threading.Event()
+
+    def process_one(row: dict[str, Any]) -> None:
+        nonlocal failures
+        if account_error_event.is_set():
+            return
         label = row.get("company") or row.get("link") or f"row {row['_row']}"
-        print(f"\n[row {row['_row']}] {label}")
+        with print_lock:
+            print(f"\n[row {row['_row']}] Starting: {label}")
         before = usage_tracker.snapshot()
         try:
             out = postular.process_row(
                 row, path=path, master=master, profile=profile, output_dir=settings.output_dir,
                 store=store, max_rounds=args.max_rounds, run_dir=run_dir, roles=roles, masters_dir=masters_dir,
-                **agents,
+                sheet_name=sheet_name, **agents,
             )
         except TrackerError as e:  # Excel open, etc.: stop, nothing else can be written
-            print(f"  ! {e}", file=sys.stderr)
-            return 2
+            with print_lock:
+                print(f"  ! {e}", file=sys.stderr)
+            with failures_lock:
+                failures += 1
+            return
         except Exception as e:
             if _is_account_error(e):  # no credits / bad key: every next row would fail the same way
-                print(f"  ! Stopped: the Anthropic API refused the request ({_short(e)}).\n"
-                      "    Check your credits/API key, then run `postular` again: pending rows are kept.",
-                      file=sys.stderr)
-                return 2
+                account_error_event.set()
+                with print_lock:
+                    print(f"  ! Stopped: the Anthropic API refused the request ({_short(e)}).\n"
+                          "    Check your credits/API key, then run `postular` again: pending rows are kept.",
+                          file=sys.stderr)
+                with failures_lock:
+                    failures += 1
+                return
             logging.getLogger(__name__).exception("Row %s failed", row["_row"])
-            postular.table(path).update(row["_row"], {"status": postular.STATUS_ERROR,
-                                                      "hr_notes": f"Error: {type(e).__name__}. See console."})
-            print(f"  ! failed: {type(e).__name__}: {e}", file=sys.stderr)
-            failures += 1
-            continue
+            try:
+                postular.table(path, sheet_name).update(
+                    row["_row"],
+                    {"status": postular.STATUS_ERROR, "hr_notes": f"Error: {type(e).__name__}. See console."}
+                )
+            except Exception:
+                pass
+            with print_lock:
+                print(f"  ! failed: {type(e).__name__}: {e}", file=sys.stderr)
+            with failures_lock:
+                failures += 1
+            return
+
         if out.master:
-            used.append((row["_row"], out.company, out.master))
+            with used_lock:
+                used.append((row["_row"], out.company, out.master))
         score = f" | HR {out.score}/10" if out.score is not None else ""
-        print(f"  {out.status}: {out.company} – {out.role}{score}")
-        print(f"  Usage: {(usage_tracker.snapshot() - before).describe()}")
-        if out.cv_path:
-            print(f"  CV: {out.cv_path}")
-        else:
-            print(f"  {out.detail}")
+        cv_msg = f"  CV: {out.cv_path}" if out.cv_path else f"  {out.detail}"
+        usage_msg = (usage_tracker.snapshot() - before).describe()
+        with print_lock:
+            print(f"  {out.status}: {out.company} – {out.role}{score}\n"
+                  f"  Usage: {usage_msg}\n"
+                  f"{cv_msg}")
+
+    if workers == 1:
+        for row in rows:
+            process_one(row)
+            if account_error_event.is_set():
+                return 2
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(process_one, row) for row in rows]
+            for f in as_completed(futures):
+                try:
+                    f.result()
+                except Exception:
+                    logging.getLogger(__name__).exception("Worker thread uncaught exception")
+        if account_error_event.is_set():
+            return 2
     if used:
         print("\nMaster used per row:")
         for number, company_name, note in used:
@@ -691,7 +739,7 @@ def cmd_postular(args: argparse.Namespace) -> int:
     if summary is not None:  # the `daily` command reads these for its report
         summary.update(usage=usage_tracker.snapshot().describe(),
                        run_dir=run_dir if run_dir.exists() else None, failures=failures)
-    print(f"Done. Results written to sheet '{postular.SHEET}' in {path}.")
+    print(f"Done. Results written to sheet '{sheet_name}' in {path}.")
     return 1 if failures else 0
 
 
@@ -738,7 +786,8 @@ def cmd_daily(args: argparse.Namespace) -> int:
     code = 0
     if not args.no_cv:
         post_args = argparse.Namespace(row=None, max_rounds=args.max_rounds, writer_provider=None,
-                                       review_provider=None, summary=summary)
+                                       review_provider=None, summary=summary,
+                                       workers=getattr(args, "workers", 1))
         code = cmd_postular(post_args)
 
     notes = [] if code == 0 else ["La generación de CVs terminó con errores: revisa la consola y la hoja Postular."]
@@ -804,6 +853,101 @@ def cmd_masters(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    """Unified morning search: Government of Canada (DND / Job Bank), ATS company boards, and Chile remote."""
+    from job_assistant.cv.roles import RolesNotFoundError, load_roles
+    from job_assistant.discovery.discover import load_config
+    from job_assistant.discovery.unified_search import run_unified_search
+    from job_assistant.profile.candidate import ProfileNotFoundError, load_candidate_profile
+
+    settings = _settings_or_exit()
+    path = settings.tracker_path
+    if not path.is_file():
+        print(f"Tracker not found at {path}. Run `tracker init` first.", file=sys.stderr)
+        return 2
+
+    try:
+        profile = load_candidate_profile(settings.data_dir)
+        roles = load_roles(settings.data_dir)
+    except (ProfileNotFoundError, RolesNotFoundError) as e:
+        print(e, file=sys.stderr)
+        return 2
+
+    config = load_config(settings.data_dir)
+    print("Buscando vacantes en:")
+    print("  - Gobierno de Canadá (Job Bank, National Defence / DND)")
+    print(f"  - Empresas medianas / tech ({len(config.boards)} company boards en Greenhouse/Lever/Ashby)")
+    print("  - Chile remoto (GetOnBoard)")
+    print(f"  - Bandeja manual: {settings.data_dir / 'inbox'}\n")
+
+    res = run_unified_search(
+        path=path,
+        profile=profile,
+        roles=roles,
+        config=config,
+        inbox_dir=settings.data_dir / "inbox",
+        top_canada=args.top_canada,
+        top_chile=args.top_chile,
+        include_jobbank=not args.no_jobbank,
+        include_boards=not args.no_boards,
+        include_chile=not args.no_chile,
+    )
+
+    print(f"Búsqueda finalizada:")
+    print(f"  - Total vacantes leídas: {res.postings_found}")
+    print(f"  - Nuevas agregadas a 'Postular' (Canadá / Gob): {res.canada_added}")
+    print(f"  - Nuevas agregadas a 'Postular Chile': {res.chile_added}")
+    print(f"  - Duplicadas descartadas: {res.duplicates_skipped}")
+    print(f"  - Fuera de perfil / excluidas: {res.filtered_out}")
+    if res.errors:
+        print(f"  - Advertencias/errores: {len(res.errors)}")
+        for err in res.errors[:5]:
+            print(f"    ! {err}", file=sys.stderr)
+
+    total_added = res.canada_added + res.chile_added
+    print(f"\nTotal nuevas vacantes listas en el tracker: {total_added}")
+    if total_added > 0:
+        print("Para generar los CVs en paralelo ejecuta:")
+        print("  .venv\\Scripts\\python.exe -m job_assistant postular -w 5")
+        if res.chile_added:
+            print("  .venv\\Scripts\\python.exe -m job_assistant postular --sheet \"Postular Chile\" -w 5")
+    return 0
+
+
+def cmd_chile_search(args: argparse.Namespace) -> int:
+    """Search GetOnBoard for 100% remote Chilean postings and log them in Postular (Country = Chile). Never applies."""
+    from job_assistant.cv import postular
+    from job_assistant.cv.roles import RolesNotFoundError, load_roles
+    from job_assistant.discovery import chile
+
+    settings = _settings_or_exit()
+    path = settings.tracker_path
+    if not path.is_file():
+        print(f"Tracker not found at {path}.", file=sys.stderr)
+        return 2
+    try:
+        roles = load_roles(settings.data_dir)
+    except RolesNotFoundError as e:
+        print(e, file=sys.stderr)
+        return 2
+    result = chile.search(path, roles)
+    print(f"GetOnBoard: {result.found} vacantes leídas, {len(result.candidates)} nuevas 100% remotas de tus roles.")
+    for reason, n in result.discarded.items():
+        print(f"  descartadas ({reason}): {n}")
+    for error in result.errors:
+        print(f"  error: {error}", file=sys.stderr)
+    for c in result.candidates[: args.top]:
+        print(f"  - {c.posting.company} | {c.posting.title} | {c.countries} | {c.posting.url}")
+    if args.dry_run or not result.candidates:
+        print("(dry-run: no se escribió nada en el tracker)" if args.dry_run else "")
+        return 0
+    postular.ensure_sheet(path)  # adds the Chile columns (one backup) if the sheet lacks them
+    rows = chile.add_to_tracker(path, result.candidates)
+    print(f"Agregadas {len(rows)} filas a '{postular.SHEET}' con País = Chile (Estado = Nuevo). "
+          "Genera los CVs con `postular --only-with-description`.")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Independent pass over generated resumes: do they clear the hard filters? (no AI, no cost)"""
     from datetime import date
@@ -829,6 +973,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
         today = date.today()
         days = sorted(settings.output_dir.glob(f"{DAY_FOLDER_PREFIX} {today.month}-{today.day}*"))
     folders = [f for day in days if day.is_dir() for f in sorted(day.iterdir()) if f.is_dir()]
+    # Chilean resumes live one level down, in <day>/Chile/<Company>_<Role>/.
+    folders = [g for f in folders for g in (sorted(p for p in f.iterdir() if p.is_dir()) if f.name == "Chile" else [f])]
     verdicts = [v for v in (verify_folder(f, master, roles) for f in folders) if v is not None]
     if not verdicts:
         print("No resumes found to verify.", file=sys.stderr)
@@ -1042,13 +1188,29 @@ def main(argv: list[str] | None = None) -> int:
     post.add_argument("--row", type=int, help="Process only this Excel row (any status)")
     post.add_argument("--only-with-description", action="store_true",
                       help="Skip rows that have no pasted description (they stay untouched for you to complete)")
+    post.add_argument("--sheet", help='Process another sheet instead of "Postular" (e.g. "Postular Chile")')
     post.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS,
                       help=f"Writer <-> HR review rounds (default {DEFAULT_MAX_ROUNDS})")
     post.add_argument("--writer-provider", choices=["anthropic", "deepseek"],
                       help="Override WRITER_PROVIDER for this run")
     post.add_argument("--review-provider", choices=["anthropic", "deepseek"],
                       help="Override REVIEW_PROVIDER for this run")
+    post.add_argument("--workers", "-w", type=int, default=1,
+                      help="Number of concurrent workers (default 1; e.g. -w 5 for fast parallel generation)")
     post.set_defaults(func=cmd_postular)
+
+    search_cmd = sub.add_parser("search", help="Morning search across Government (DND/JobBank), ATS boards, and Chile remote")
+    search_cmd.add_argument("--top-canada", type=int, default=20, help="Max Canadian/Government postings to add (default 20)")
+    search_cmd.add_argument("--top-chile", type=int, default=10, help="Max Chilean remote postings to add (default 10)")
+    search_cmd.add_argument("--no-jobbank", action="store_true", help="Skip Job Bank / Government search")
+    search_cmd.add_argument("--no-boards", action="store_true", help="Skip ATS company boards")
+    search_cmd.add_argument("--no-chile", action="store_true", help="Skip Chile GetOnBoard search")
+    search_cmd.set_defaults(func=cmd_search)
+
+    chile_search = sub.add_parser("chile-search", help="Find 100% remote Chilean postings (GetOnBoard) and log them in Postular")
+    chile_search.add_argument("--dry-run", action="store_true", help="Only show what was found; write nothing")
+    chile_search.add_argument("--top", type=int, default=15, help="How many new postings to list")
+    chile_search.set_defaults(func=cmd_chile_search)
 
     verify = sub.add_parser("verify", help="Check generated resumes against the hard filters (no AI, no cost)")
     verify.add_argument("--folder", help='A day folder under output/, e.g. "Resumenes 10-21" (default: today\'s)')
@@ -1065,6 +1227,8 @@ def main(argv: list[str] | None = None) -> int:
     daily.add_argument("--no-boards", action="store_true", help="Only use data/inbox/")
     daily.add_argument("--no-cv", action="store_true", help="Search and fill the sheet, skip the CVs")
     daily.add_argument("--max-rounds", type=int, default=DEFAULT_MAX_ROUNDS)
+    daily.add_argument("--workers", "-w", type=int, default=1,
+                      help="Number of concurrent workers for CV generation (default 1; e.g. -w 5)")
     daily.set_defaults(func=cmd_daily)
 
     base = sub.add_parser("base", help="Build the base CV from cv_master.toml (no AI, no cost)")

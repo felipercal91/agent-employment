@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -23,6 +24,18 @@ _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _HEADER_FILL = PatternFill("solid", fgColor="1F3864")
 _THIN = Side(style="thin", color="BFBFBF")
 BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+
+_WORKBOOK_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_MUTEX = threading.Lock()
+
+
+def get_workbook_lock(path: Path) -> threading.Lock:
+    """Thread lock per workbook file to guarantee atomic updates across concurrent workers."""
+    resolved = str(path.resolve())
+    with _LOCKS_MUTEX:
+        if resolved not in _WORKBOOK_LOCKS:
+            _WORKBOOK_LOCKS[resolved] = threading.Lock()
+        return _WORKBOOK_LOCKS[resolved]
 
 
 class WorkbookError(RuntimeError):
@@ -131,26 +144,27 @@ class SheetTable:
     def rows(self) -> list[dict[str, Any]]:
         if not self.path.is_file():
             return []
-        wb = load_workbook(self.path, data_only=True)
-        if self.sheet_name not in wb.sheetnames:
-            return []
-        ws = wb[self.sheet_name]
-        mapping = self._map(ws)
-        if mapping is None:
-            return []
-        header_row, cols = mapping
-        result = []
-        for r in range(header_row + 1, ws.max_row + 1):
-            record: dict[str, Any] = {f: ws.cell(r, c).value for f, c in cols.items()}
-            if all(v in (None, "") for v in record.values()):
-                continue
-            for col in self.columns:
-                record.setdefault(col.field, None)
-                if isinstance(record[col.field], str):
-                    record[col.field] = record[col.field].strip()
-            record["_row"] = r
-            result.append(record)
-        return result
+        with get_workbook_lock(self.path):
+            wb = load_workbook(self.path, data_only=True)
+            if self.sheet_name not in wb.sheetnames:
+                return []
+            ws = wb[self.sheet_name]
+            mapping = self._map(ws)
+            if mapping is None:
+                return []
+            header_row, cols = mapping
+            result = []
+            for r in range(header_row + 1, ws.max_row + 1):
+                record: dict[str, Any] = {f: ws.cell(r, c).value for f, c in cols.items()}
+                if all(v in (None, "") for v in record.values()):
+                    continue
+                for col in self.columns:
+                    record.setdefault(col.field, None)
+                    if isinstance(record[col.field], str):
+                        record[col.field] = record[col.field].strip()
+                record["_row"] = r
+                result.append(record)
+            return result
 
     def _open_for_write(self) -> tuple[Workbook, Worksheet, int, dict[str, int]]:
         ensure_writable(self.path)
@@ -182,33 +196,35 @@ class SheetTable:
         """Append all records in one write (one backup). Returns the row numbers used."""
         if not records:
             return []
-        wb, ws, header_row, cols = self._open_for_write()
-        last = header_row
-        for r in range(header_row + 1, ws.max_row + 1):
-            if any(ws.cell(r, c).value not in (None, "") for c in cols.values()):
-                last = r
-        rows: list[int] = []
-        for values in records:
-            last += 1
-            self._set(ws, last, cols, values)
-            rows.append(last)
-        ref = ws.auto_filter.ref
-        if ref and (m := re.fullmatch(r"([A-Z]+\d+):([A-Z]+)(\d+)", ref)) and int(m.group(3)) < last:
-            ws.auto_filter.ref = f"{m.group(1)}:{m.group(2)}{last}"
-        backup(self.path)
-        wb.save(self.path)
-        return rows
+        with get_workbook_lock(self.path):
+            wb, ws, header_row, cols = self._open_for_write()
+            last = header_row
+            for r in range(header_row + 1, ws.max_row + 1):
+                if any(ws.cell(r, c).value not in (None, "") for c in cols.values()):
+                    last = r
+            rows: list[int] = []
+            for values in records:
+                last += 1
+                self._set(ws, last, cols, values)
+                rows.append(last)
+            ref = ws.auto_filter.ref
+            if ref and (m := re.fullmatch(r"([A-Z]+\d+):([A-Z]+)(\d+)", ref)) and int(m.group(3)) < last:
+                ws.auto_filter.ref = f"{m.group(1)}:{m.group(2)}{last}"
+            backup(self.path)
+            wb.save(self.path)
+            return rows
 
     def update(self, row: int, values: dict[str, Any], links: dict[str, str] | None = None) -> None:
         """Write `values` into `row`; `links` maps a field to a hyperlink target for its cell."""
-        wb, ws, header_row, cols = self._open_for_write()
-        if row <= header_row:
-            raise WorkbookError(f"Row {row} is not a data row.")
-        self._set(ws, row, cols, values)
-        for fld, target in (links or {}).items():
-            if fld in cols:
-                cell = ws.cell(row, cols[fld])
-                cell.hyperlink = target
-                cell.font = Font(color="0563C1", underline="single")
-        backup(self.path)
-        wb.save(self.path)
+        with get_workbook_lock(self.path):
+            wb, ws, header_row, cols = self._open_for_write()
+            if row <= header_row:
+                raise WorkbookError(f"Row {row} is not a data row.")
+            self._set(ws, row, cols, values)
+            for fld, target in (links or {}).items():
+                if fld in cols:
+                    cell = ws.cell(row, cols[fld])
+                    cell.hyperlink = target
+                    cell.font = Font(color="0563C1", underline="single")
+            backup(self.path)
+            wb.save(self.path)

@@ -36,12 +36,20 @@ AI_PHRASES = {
         "solutions innovantes", "en constante évolution", "levier", "tirer parti", "holistique",
         "incontournable", "véritable", "pilier", "savoir-faire éprouvé",
     ],
+    "es": [
+        "apasionado", "apasionada", "dinámico", "dinámica", "de vanguardia", "sinergia", "proactivo",
+        "proactiva", "orientado a resultados", "orientada a resultados", "soluciones innovadoras",
+        "en constante evolución", "aprovechar", "holístico", "holística", "trayectoria comprobada",
+        "imprescindible", "pilar", "hacer realidad", "habilidades blandas",
+    ],
 }
 # Verbs that claim ownership of a team or outcome. A bullet may only use one when the fact it
 # came from already does ("worked/reviewed/mentored" must not become "led").
 LEAD_VERBS = {
     "en": {"led", "directed", "managed", "owned", "headed", "oversaw", "architected", "spearheaded"},
     "fr": {"dirigé", "géré", "piloté", "supervisé", "architecturé", "dirige", "gère"},
+    "es": {"lideré", "dirigí", "gestioné", "administré", "supervisé", "encabecé", "lideró", "dirigió",
+           "gestionó", "supervisó", "lidera", "dirige", "gestiona"},
 }
 _WORD = re.compile(r"[\wÀ-ÿ'-]+")
 # Domains and skills that postings ask for and that a model is tempted to claim. If one appears in
@@ -56,6 +64,11 @@ CLAIM_TERMS = {
            "prêt", "hypothécaire", "paiement", "sécurisé", "sécurité", "authentification",
            "chiffrement", "conformité", "réglementaire", "réglementé", "infonuagique natif",
            "tests unitaires", "tests automatisés", "astreinte"],
+    "es": ["bancari", "banco", "fintech", "salud", "telecomunicaciones", "retail", "comercio electrónico",
+           "préstamo", "hipotecari", "pago", "seguridad", "autenticación", "autorización",
+           "cifrado", "encriptación", "cumplimiento normativo", "regulatori", "regulado", "serverless",
+           "pruebas unitarias", "pruebas automatizadas", "automatización de pruebas", "turno de guardia",
+           "startup"],
 }
 MIN_MATCH_RATIO = 0.30  # below this, no source bullet is similar enough to judge
 
@@ -160,7 +173,27 @@ def _skill_names(item: str) -> list[str]:
     """Names inside a skills-list entry: "Git & GitHub" -> Git, GitHub; "Java (J2EE, JSP)" -> Java."""
     base = re.sub(r"\(.*?\)", "", item)
     # "/" is not a separator: "Oracle PL/SQL" and "HTML/CSS" are single names.
-    return [n.strip() for n in re.split(r"\s+(?:&|et|and)\s+", base) if len(n.strip()) >= 3]
+    names = [n.strip() for n in re.split(r"\s+(?:&|et|and)\s+", base) if len(n.strip()) >= 3]
+    # "Java 8/17" must still guard the bare name "Java".
+    return names + [bare for n in names if (bare := re.sub(r"\s+\d[\d/.]*$", "", n)) != n and len(bare) >= 3]
+
+
+def familiar_claims(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
+    """Training-only skills (Kafka, Docker, JUnit, Mockito...) used as if they were experience: in the
+    headline, summary, competencies or any job bullet. They belong on the 'Familiar with' line only."""
+    names: list[str] = []
+    for item in master.familiar(lang):
+        for name in _skill_names(item):
+            names.append(name)
+            if name.startswith("Apache "):  # "Apache Kafka" is usually written "Kafka"
+                names.append(name.split()[-1])
+    text = "\n".join([content.title, content.summary, *content.competencies,
+                      *(b.text() for j in content.experience for b in j.bullets)])
+    flagged: list[str] = []
+    for name in names:
+        if _has_name(name, text) and name not in flagged:
+            flagged.append(name)
+    return flagged
 
 
 def _has_name(name: str, text: str) -> bool:
@@ -173,7 +206,7 @@ def skills_only_claims(content: ResumeContent, master: CVMaster, lang: Language)
     A tool listed only in the skills section (e.g. Postman) may stay in the Tools line, but a bullet
     like "Performed API checks in Postman" claims an activity the facts do not state.
     """
-    facts = {j.id: " ".join(j.bullets) for j in master.jobs(lang)}
+    facts = {j.id: " ".join([*j.bullets, *j.stack]) for j in master.jobs(lang)}
     names = [n for tool in master.tools(lang) for n in _skill_names(tool)]
     flagged: list[str] = []
     for job in content.experience:
@@ -183,6 +216,50 @@ def skills_only_claims(content: ResumeContent, master: CVMaster, lang: Language)
             if _has_name(name, text) and not _has_name(name, job_facts) and name not in flagged:
                 flagged.append(name)
     return flagged
+
+
+# One profile per resume: the summary and headline match the title, never two roles or a career pivot.
+MIXED_PROFILE = re.compile(
+    r"\bnow\s+(?:targeting|seeking|pursuing|moving|transitioning|focus(?:ed|ing))\b"
+    r"|\b(?:developer|engineer)\s*(?:,|/|&|and)\s*(?:\w+\s+)?analyst\b"
+    r"|\banalyst\s*(?:,|/|&|and)\s*(?:\w+\s+)?(?:developer|engineer)\b",
+    re.IGNORECASE,
+)
+
+
+# The role a headline or summary presents the candidate as. "lead" is a level, not a profile, so it mixes with any.
+PROFILE_FAMILIES = {
+    "developer": re.compile(r"\b(?:developers?|engineers?|programmers?|développeu(?:r|se)s?)\b", re.IGNORECASE),
+    "analyst": re.compile(r"\b(?:analysts?|analystes?)\b", re.IGNORECASE),
+    "consultant": re.compile(r"\b(?:consultants?|conseill(?:er|ère)s?)\b", re.IGNORECASE),
+    "project manager": re.compile(r"\b(?:project|product|program) managers?\b|\bchefs? de projet\b", re.IGNORECASE),
+    "tester": re.compile(r"\btesters?\b", re.IGNORECASE),
+    "lead": re.compile(r"\b(?:technical|tech|team|java) (?:team )?lead(?:er)?\b|\bchef d'équipe\b", re.IGNORECASE),
+}
+
+
+_HONEST_CROSS_PROFILE = re.compile(
+    r"Software engineer (?:and technical lead )?with 13\+ years in insurance technology,\s*(?:with strong requirements analysis|(?:including|building) SQL)",
+    re.IGNORECASE,
+)
+
+
+def mixed_profile(content: ResumeContent) -> list[str]:
+    """Phrases that present two profiles at once, or a career pivot, in the headline and summary."""
+    if _HONEST_CROSS_PROFILE.search(content.summary):
+        return []
+    text = content.title + " " + content.summary
+    found = sorted({m.group(0) for m in MIXED_PROFILE.finditer(text)})
+    # Only the headline and the first sentence say who the candidate is; later "teams of developers and
+    # analysts" describe other people.
+    stated = content.title + " " + re.split(r"(?<=[.!?])\s", content.summary, maxsplit=1)[0]
+    in_title = {name for name, rx in PROFILE_FAMILIES.items() if rx.search(content.title)}
+    in_stated = {name for name, rx in PROFILE_FAMILIES.items() if rx.search(stated)}
+    # The summary may only restate the headline's profile; a headline that already names two is mixed too.
+    mixed = len(in_title) > 1 or bool(in_title and in_stated - in_title) or (not in_title and len(in_stated) > 1)
+    if mixed and not found:
+        found.append("presents " + " and ".join(n for n in PROFILE_FAMILIES if n in in_title | in_stated))
+    return found
 
 
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
@@ -233,7 +310,7 @@ def run_checks(
         findings.append(Finding("blocker", f"Certification still in progress, written as obtained: {', '.join(unfinished)}",
                                 "Say 'in progress' or leave it out; the facts say it is not finished."))
     if master is not None:
-        banned = banned_terms_found(content, master.banned_terms())
+        banned = banned_terms_found(content, master.banned_terms(lang))
         if banned:
             findings.append(Finding("blocker", f"Words the candidate does not want on her CV: {', '.join(banned)}",
                                     "Remove them (see [meta] banned_terms in cv_master.toml)."))
@@ -247,10 +324,18 @@ def run_checks(
             # A blocker: it forces the writer to redo the draft instead of shipping a claim the facts lack.
             findings.append(Finding("blocker", f"Tools claimed in a bullet that the facts of that job do not mention: {', '.join(skills_only)}",
                                     "Keep them in the Tools line only, or use the job's own facts."))
+        training = familiar_claims(content, master, lang)
+        if training:
+            findings.append(Finding("blocker", f"Training-only skills presented as experience: {', '.join(training)}",
+                                    "Remove them from the summary, competencies and bullets; they stay on the 'Familiar with / training' line."))
         upgrades = leadership_upgrades(content, master, lang)
         if upgrades:
             findings.append(Finding("major", "Leadership claim not in the facts: " + "; ".join(upgrades[:3]),
                                     "Use the verb the fact itself uses (worked, reviewed, defined...)."))
+    mixed = mixed_profile(content)
+    if mixed:
+        findings.append(Finding("blocker", f"The headline or summary mixes profiles: {', '.join(mixed)}",
+                                "State ONE profile, the one in the headline; no 'developer and analyst', no 'now targeting'."))
     if re.search(r"certified scrum master", content.all_text(), re.I):
         findings.append(Finding("major", "'Certified Scrum Master' reads as the Scrum Alliance CSM.",
                                 "Write 'Scrum Master Professional Certificate (SMPC®)'."))

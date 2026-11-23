@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -73,6 +74,7 @@ class UsageTracker(BaseCallbackHandler):
     def __init__(self, model: str) -> None:
         self.model = model
         self._usage = Usage()
+        self._lock = threading.Lock()
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         for generations in response.generations:
@@ -83,10 +85,12 @@ class UsageTracker(BaseCallbackHandler):
                 tokens_in, tokens_out = int(meta.get("input_tokens", 0)), int(meta.get("output_tokens", 0))
                 prices = price_per_mtok(self.model)
                 cost = None if prices is None else (tokens_in * prices[0] + tokens_out * prices[1]) / 1_000_000
-                self._usage = self._usage + Usage(1, tokens_in, tokens_out, cost)
+                with self._lock:
+                    self._usage = self._usage + Usage(1, tokens_in, tokens_out, cost)
 
     def snapshot(self) -> Usage:
-        return self._usage
+        with self._lock:
+            return self._usage
 
 
 class UsageGroup:

@@ -7,6 +7,7 @@ requirements-check stop. Results are written back to the same row.
 from __future__ import annotations
 
 import logging
+import threading
 from copy import copy
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,12 +30,14 @@ from job_assistant.cv.roles import Role, RoleBase, match_role
 from job_assistant.profile.candidate import CandidateProfile
 from job_assistant.profile.store import ProfileStore
 from job_assistant.tailoring.drafts import slugify
+from job_assistant.tailoring.chile import check_fully_remote, extract_details, is_chile, spanish_roles
 from job_assistant.tailoring.market import Language, detect_market, is_french_text
 from job_assistant.tracker.workbook import (
     SheetTable,
     TableColumn,
     backup,
     ensure_writable,
+    get_workbook_lock,
     write_header,
 )
 
@@ -44,15 +47,19 @@ SHEET = "Postular"
 
 STATUS_READY = "CV listo – revisar"
 STATUS_MANUAL = "CV con observaciones"
+STATUS_REVIEW = "Revisar"
 STATUS_NO_JD = "Falta descripción"
 STATUS_MISMATCH = "No cumple requisito"
 STATUS_ERROR = "Error"
 STATUS_TODO = {"", "nuevo", "regenerar", "forzar"}
+STATUS_DISCARDED = "Descartado"
+CHILE_FOLDER = "Chile"  # Chilean resumes go in <day folder>/Chile/<Company>_<Role>/
+SPANISH_FALLBACK_NOTE = "No hay versión de tu CV en español (cv_master_es.toml): se generó en inglés."
 LANGUAGE_FALLBACK_NOTE = "La vacante pide francés pero no hay versión de tu CV en francés: se generó en inglés."
 MIN_FULL_DESCRIPTION = 200  # chars: a real job description
 MIN_SUMMARY = 40  # chars: a pasted summary, used only when the link cannot be read
 SUMMARY_WARNING = "Basado en un resumen corto (el link no se pudo leer): pega la descripción completa para un CV más preciso."
-STATUSES = ["Nuevo", "Regenerar", "Forzar", STATUS_READY, STATUS_MANUAL, STATUS_NO_JD,
+STATUSES = ["Nuevo", "Regenerar", "Forzar", STATUS_REVIEW, STATUS_READY, STATUS_MANUAL, STATUS_NO_JD,
             STATUS_MISMATCH, STATUS_ERROR, "Aplicado", "Descartado"]
 
 
@@ -80,11 +87,21 @@ COLUMNS = [
     _col("source", "Fuente", 14, "fuente", "source"),
     _col("posted", "Publicada", 12, "publicada", "posted"),
     _col("master_role", "Master usado", 40, "master", "master usado"),
+    # Chile market (added at the end: no existing column moves). An empty Country means Canada.
+    _col("country", "País", 10, "pais", "country"),
+    _col("requires_residence", "Requiere residir en Chile", 16, "residencia", "requiere residir en chile"),
+    _col("contract", "Tipo de contrato", 16, "contrato", "tipo de contrato"),
+    _col("salary_clp", "Sueldo (CLP)", 22, "sueldo", "sueldo clp", "salario"),
+    _col("salary", "Salary", 24, "salary", "salary range", "posted salary"),
 ]
+COUNTRY_OPTIONS = ["Canadá", "Chile"]
 
 
-def table(path: Path) -> SheetTable:
-    return SheetTable(path, SHEET, COLUMNS)
+CHILE_SHEET = "Postular Chile"  # the separate sheet where Grok lists Chilean postings (same columns, Country = Chile)
+
+
+def table(path: Path, sheet: str = SHEET) -> SheetTable:
+    return SheetTable(path, sheet, COLUMNS)
 
 
 def _add_missing_columns(ws: Any) -> list[str]:
@@ -103,8 +120,9 @@ def _add_missing_columns(ws: Any) -> list[str]:
         cell.font, cell.fill = copy(template.font), copy(template.fill)
         cell.alignment, cell.border = copy(template.alignment), copy(template.border)
         ws.column_dimensions[cell.column_letter].width = col.width
-        if col.field == "approved":
-            dv = DataValidation(type="list", formula1='"Sí,No"', allow_blank=True)
+        if col.field in ("approved", "country"):
+            options = "Sí,No" if col.field == "approved" else ",".join(COUNTRY_OPTIONS)
+            dv = DataValidation(type="list", formula1=f'"{options}"', allow_blank=True)
             dv.add(f"{cell.column_letter}{header_row + 1}:{cell.column_letter}500")
             ws.add_data_validation(dv)
         added.append(col.header)
@@ -113,29 +131,43 @@ def _add_missing_columns(ws: Any) -> list[str]:
 
 def ensure_sheet(path: Path) -> bool:
     """Create the Postular sheet (with dropdowns) if missing. Returns True if created."""
-    ensure_writable(path)
-    wb = load_workbook(path)
-    if SHEET in wb.sheetnames:
-        if _add_missing_columns(wb[SHEET]):
+    with get_workbook_lock(path):
+        ensure_writable(path)
+        wb = load_workbook(path)
+        if SHEET in wb.sheetnames:
+            if _add_missing_columns(wb[SHEET]):
+                backup(path)
+                wb.save(path)
+            return False
+        ws = wb.create_sheet(SHEET, 0)  # first tab: it is the daily entry point
+        write_header(ws, [(c.field, c.header, c.width) for c in COLUMNS])
+        letters = {c.field: ws.cell(1, i).column_letter for i, c in enumerate(COLUMNS, start=1)}
+        for field, options in (("status", STATUSES), ("language", ["auto", "en", "fr"]), ("approved", ["Sí", "No"])):
+            dv = DataValidation(type="list", formula1=f"\"{','.join(options)}\"", allow_blank=True)
+            dv.add(f"{letters[field]}2:{letters[field]}500")
+            ws.add_data_validation(dv)
+        backup(path)
+        wb.save(path)
+        return True
+
+
+def ensure_columns(path: Path, sheet: str) -> list[str]:
+    """Add the columns an existing sheet lacks (at the end, one backup). Returns the headers added."""
+    with get_workbook_lock(path):
+        ensure_writable(path)
+        wb = load_workbook(path)
+        added = _add_missing_columns(wb[sheet]) if sheet in wb.sheetnames else []
+        if added:
             backup(path)
             wb.save(path)
-        return False
-    ws = wb.create_sheet(SHEET, 0)  # first tab: it is the daily entry point
-    write_header(ws, [(c.field, c.header, c.width) for c in COLUMNS])
-    letters = {c.field: ws.cell(1, i).column_letter for i, c in enumerate(COLUMNS, start=1)}
-    for field, options in (("status", STATUSES), ("language", ["auto", "en", "fr"]), ("approved", ["Sí", "No"])):
-        dv = DataValidation(type="list", formula1=f"\"{','.join(options)}\"", allow_blank=True)
-        dv.add(f"{letters[field]}2:{letters[field]}500")
-        ws.add_data_validation(dv)
-    backup(path)
-    wb.save(path)
-    return True
+        return added
 
 
-def pending_rows(path: Path, only_row: int | None = None, require_description: bool = False) -> list[dict[str, Any]]:
+def pending_rows(path: Path, only_row: int | None = None, require_description: bool = False,
+                 sheet: str = SHEET) -> list[dict[str, Any]]:
     """Rows still to process. With `require_description`, rows whose pasted description is shorter than a
     real posting are left untouched (their status stays empty) so the user can paste it and run again."""
-    rows = [r for r in table(path).rows() if (r.get("link") or r.get("description"))]
+    rows = [r for r in table(path, sheet).rows() if (r.get("link") or r.get("description"))]
     if only_row is not None:
         return [r for r in rows if r["_row"] == only_row]
     todo = [r for r in rows if str(r.get("status") or "").strip().lower() in STATUS_TODO]
@@ -147,7 +179,7 @@ def pending_rows(path: Path, only_row: int | None = None, require_description: b
 def choose_language(row_value: object, jd_text: str) -> Language:
     """The posting's own language decides, unless the row forces one."""
     forced = str(row_value or "").strip().lower()
-    if forced in {"en", "fr"}:
+    if forced in {"en", "fr", "es"}:
         return forced  # type: ignore[return-value]
     return "fr" if is_french_text(jd_text) else "en"
 
@@ -162,7 +194,7 @@ def _part(text: str, n: int) -> str:
 
 def cv_filename(prefix: str, lang: Language, company: str, role: str,
                 company_chars: int = 30, role_chars: int = 40) -> str:
-    kind = "Resume" if lang == "en" else "CV"
+    kind = {"en": "Resume", "fr": "CV", "es": "CV_ES"}[lang]  # the ES file name says it is the Spanish one
     return f"{prefix}_{kind}_{_part(company, company_chars)}_{_part(role, role_chars)}.pdf"
 
 
@@ -185,6 +217,9 @@ def next_run_folder(output_dir: Path, today: date) -> Path:
     while (output_dir / run_folder_name(today, run)).exists():
         run += 1
     return output_dir / run_folder_name(today, run)
+
+
+_PATH_LOCK = threading.Lock()
 
 
 def bounded_paths(run_dir: Path, prefix: str, lang: Language, company: str, role: str) -> tuple[Path, Path]:
@@ -244,14 +279,16 @@ def process_row(
     today: date | None = None,
     roles: list[Role] | None = None,
     masters_dir: Path | None = None,
+    sheet_name: str = SHEET,
 ) -> RowOutcome:
     today = today or date.today()
-    sheet = table(path)
+    sheet = table(path, sheet_name)
     link = str(row.get("link") or "").strip()
     pasted = str(row.get("description") or "").strip()
     force = str(row.get("status") or "").strip().lower() == "forzar"
 
     # 1. Job description
+    chile = is_chile(row.get("country"))
     summary_only = False
     if len(pasted) >= MIN_FULL_DESCRIPTION:
         jd = JobDescription(text=pasted, source="pasted in the sheet")
@@ -273,6 +310,17 @@ def process_row(
     location = str(row.get("location") or jd.location or "").strip()
     header = f"Company: {company}\nTitle: {role}\nLocation: {location}\n\n" if (company or role) else ""
     jd_text = header + jd.text
+    details: dict[str, Any] = {}
+    if chile:
+        found = extract_details(jd.text)
+        details = {"requires_residence": found.requires_residence, "contract": found.contract,
+                   "salary_clp": found.salary_clp}
+        remote = check_fully_remote(f"{location}\n{jd.text}")
+        if not remote.fully_remote and not force:
+            sheet.update(row["_row"], {"status": STATUS_DISCARDED, "company": company, "role": role,
+                                       "hr_notes": remote.reason + " Pon Estado = Forzar para generar el CV igual.",
+                                       "processed": today, **details})
+            return RowOutcome(row["_row"], company, role, STATUS_DISCARDED, remote.reason)
 
     # 2. Requirements check (hard mismatches stop here unless the row says Forzar)
     excerpts = store.search(jd_text[:2000], k=6) if store is not None else []
@@ -286,28 +334,35 @@ def process_row(
         sheet.update(row["_row"], {
             "status": STATUS_MISMATCH, "company": company, "role": role, "location": location,
             "hr_notes": f"No cumples: {reasons}. Pon Estado = Forzar para generar el CV igual.",
-            "processed": today,
+            "processed": today, **details,
         })
         return RowOutcome(row["_row"], company, role, STATUS_MISMATCH, reasons)
 
     # 3. Writer <-> HR reviewer loop, then PDF
     lang = choose_language(row.get("language"), jd.text)
     language_note = ""
+    if chile and str(row.get("language") or "").strip().lower() not in {"en", "fr"}:
+        lang = "es"  # a Chilean posting gets the Spanish resume (unless the row forces another language)
     if lang == "fr" and not master.has_language("fr"):
         lang, language_note = "en", LANGUAGE_FALLBACK_NOTE
+    if lang == "es" and not master.has_language("es"):
+        lang, language_note = "en", SPANISH_FALLBACK_NOTE
     # All CVs of one run go into one day folder (the caller passes it; alone, the first run's name).
     day_dir = run_dir or output_dir / run_folder_name(today)
-    folder, pdf = bounded_paths(day_dir, str(master.contact.get("file_prefix", "CV")),
-                                lang, company, role)
-    quebec = detect_market(jd.text, location, company).is_quebec
+    if chile:
+        day_dir = day_dir / CHILE_FOLDER
+    with _PATH_LOCK:
+        folder, pdf = bounded_paths(day_dir, str(master.contact.get("file_prefix", "CV")),
+                                    lang, company, role)
+        folder.mkdir(parents=True, exist_ok=True)
+    quebec = False if chile else detect_market(jd.text, location, company).is_quebec
     role_base, master_note = None, ""
     if roles:  # start from the master resume of the closest role, and say which and why
-        picked = match_role(role, jd.text, roles)
+        picked = match_role(role, jd.text, spanish_roles(roles) if chile else roles)
         role_base = RoleBase(picked.role, load_master_content(masters_dir, picked.role) if masters_dir else "")
         master_note = f"{picked.role.name}. {picked.reason}"
     result = generate_resume(jd_text, master, lang, writer, reviewer, pdf,
                              str(row.get("notes") or ""), max_rounds, renderer, quebec, role_base)
-    folder.mkdir(parents=True, exist_ok=True)
     (folder / "job_description.txt").write_text(
         f"{link}\nSource: {jd.source}\n\n{jd_text}\n", encoding="utf-8"
     )
@@ -342,7 +397,7 @@ def process_row(
         {
             "status": status, "company": company, "role": role, "location": location,
             "language": lang, "cv_file": pdf.name, "hr_score": result.review.scores.average(),
-            "hr_notes": notes, "processed": today, "master_role": master_note or None,
+            "hr_notes": notes, "processed": today, "master_role": master_note or None, **details,
         },
         links={"cv_file": pdf.resolve().as_uri()},
     )
@@ -365,7 +420,8 @@ class AuditOutcome:
 
 
 def find_cv_folder(output_dir: Path, cv_file: str) -> Path | None:
-    matches = sorted(output_dir.glob(f"{DAY_FOLDER_PREFIX} */*/{cv_file}"),
+    matches = sorted([*output_dir.glob(f"{DAY_FOLDER_PREFIX} */*/{cv_file}"),
+                      *output_dir.glob(f"{DAY_FOLDER_PREFIX} */{CHILE_FOLDER}/*/{cv_file}")],
                      key=lambda m: m.stat().st_mtime)  # newest run wins
     matches += sorted((output_dir / "cv").glob(f"*/{cv_file}"))  # layout used before the day folders
     matches.sort(key=lambda m: m.stat().st_mtime)
@@ -435,10 +491,11 @@ def audit_row(
     content = ResumeContent.model_validate_json((folder / "resume_content.json").read_text(encoding="utf-8"))
     jd = (folder / "job_description.txt").read_text(encoding="utf-8")
     forced = str(row.get("language") or "").strip().lower()
-    lang: Language = forced if forced in {"en", "fr"} else "en"  # type: ignore[assignment]
-    if lang == "fr" and not master.has_language("fr"):
+    chile = is_chile(row.get("country"))
+    lang: Language = forced if forced in {"en", "fr", "es"} else ("es" if chile else "en")  # type: ignore[assignment]
+    if lang in {"fr", "es"} and not master.has_language(lang):
         lang = "en"
-    quebec = detect_market(jd, str(row.get("location") or ""), company).is_quebec
+    quebec = False if chile else detect_market(jd, str(row.get("location") or ""), company).is_quebec
     try:
         from pypdf import PdfReader
 

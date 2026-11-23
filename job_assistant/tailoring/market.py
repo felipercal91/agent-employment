@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-Language = Literal["en", "fr"]
+Language = Literal["en", "fr", "es"]  # "es": Chilean Spanish, only for postings whose Country is Chile
 
 _QUEBEC_PLACES = re.compile(
     r"\b(qu[eé]bec|montr[eé]al|laval|gatineau|sherbrooke|longueuil|trois[- ]rivi[eè]res|"

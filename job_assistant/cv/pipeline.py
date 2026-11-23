@@ -18,6 +18,7 @@ from job_assistant.cv.content import ResumeContent, normalize
 from job_assistant.cv.master import CVMaster
 from job_assistant.cv.render import build_html, render_pdf
 from job_assistant.cv.roles import RoleBase, ungrounded_terms
+from job_assistant.cv.structure import apply_role_structure
 from job_assistant.tailoring.market import Language
 
 DEFAULT_MAX_ROUNDS = 2  # each extra round is a full writer + reviewer call; round 3 rarely improved
@@ -77,6 +78,10 @@ def generate_resume(
         extra = {"role_base": role_base} if role_base is not None else {}
         content = writer.write(jd_text, master, lang, candidate_notes, content, feedback, quebec, **extra)
         content, fixes = normalize(content, master, lang)
+        if role_base is not None:
+            content, _restored = apply_role_structure(content, master, lang, role_base.role)
+            if role_base.fixed_headline:
+                content = content.model_copy(update={"title": role_base.role.headline})
         pages = renderer(build_html(master, content, lang), out_pdf)
         findings = run_checks(content, lang, source, jd_text, pages, quebec, master)
         findings += [Finding("minor", fix, "Keep to the facts' structure.") for fix in fixes]

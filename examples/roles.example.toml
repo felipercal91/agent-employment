@@ -1,0 +1,54 @@
+# Example target roles for master resumes (`python -m job_assistant masters`) and posting matching
+# (`python -m job_assistant postular`). Copy to `data/roles.toml` and customize for your profile.
+#
+# title_keywords: matched against the posting's title (first and strongest signal).
+# ats_keywords:   common terms for this role. The writer mirrors a term ONLY when cv_master.toml supports it.
+# focus:          what the writer should emphasize for this role. Guidance, never new facts.
+
+[[roles]]
+id = "java-backend"
+name = "Backend Developer (Java)"
+file_name = "Backend-Developer-Java"
+headline = "Senior Java Backend Developer"
+title_keywords = [
+    "Java Developer", "Senior Java Developer", "Intermediate Java Developer",
+    "Java Backend Developer", "Backend Developer", "Back-End Developer",
+    "Software Engineer", "Software Engineer II", "Software Developer",
+    "Spring Boot Developer", "Backend Engineer", "Back-End Engineer"
+]
+ats_keywords = ["Java", "Spring Boot", "Microservices", "REST APIs", "SQL", "PostgreSQL", "Docker", "CI/CD", "AWS", "Agile"]
+verify_terms = ["Kubernetes", "GraphQL", "Scala", "Kotlin"]
+focus = "Hands-on backend development, REST APIs, microservices, SQL performance tuning, and Agile delivery. Lead each job with technical building work."
+must_include = []
+exclude_jobs = []
+
+[[roles]]
+id = "tech-lead"
+name = "Technical Team Lead"
+file_name = "Technical-Team-Lead"
+headline = "Technical Team Lead"
+title_keywords = [
+    "Technical Lead", "Tech Lead", "Team Lead", "Lead Developer",
+    "Lead Software Engineer", "Engineering Lead", "Development Lead"
+]
+ats_keywords = ["Technical leadership", "Code review", "Mentoring", "Architecture", "Microservices", "REST APIs", "Agile", "Sprint planning", "CI/CD", "SQL"]
+verify_terms = ["Kubernetes", "Engineering manager"]
+focus = "Leading and mentoring developers, code review, sprint planning, technical backlog refinement, and hands-on architecture delivery."
+must_include = []
+exclude_jobs = []
+
+[[roles]]
+id = "app-support"
+name = "Application Support Engineer L2/L3"
+file_name = "Application-Support-Engineer"
+headline = "Application Support Engineer"
+title_keywords = [
+    "Application Support", "Application Support Engineer", "Application Support Analyst",
+    "Application Support Lead", "Production Support", "Production Support Engineer",
+    "Production Support Lead", "L2 Support", "L3 Support", "Technical Support Engineer"
+]
+ats_keywords = ["Production support", "Incident management", "Root cause analysis", "SQL", "Log analysis", "Troubleshooting", "REST APIs", "ServiceNow", "Linux", "Agile"]
+verify_terms = ["ServiceNow", "Splunk", "Linux", "Dynatrace", "On-call"]
+focus = "Hands-on production troubleshooting, SQL diagnostics, incident resolution, escalation handling, and release stability."
+must_include = []
+exclude_jobs = []

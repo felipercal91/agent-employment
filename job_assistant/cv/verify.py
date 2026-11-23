@@ -74,10 +74,30 @@ def verify_resume(
         issues.append(Finding("major", "Dashes used as punctuation in the summary, competencies or bullets.", "Use commas."))
     if LEVEL_WORDS.search(text_of_pdf):
         issues.append(Finding("blocker", "A language level or proficiency word appears in the PDF.", "List languages by name only."))
-    if not re.search(r"permanent resident|r[ée]sident permanent", text_of_pdf, re.IGNORECASE):
+    shown_jobs = {j.id: j for j in master.jobs(lang)}
+    expected_stacks = sum(1 for e in content.experience if shown_jobs.get(e.job_id) and shown_jobs[e.job_id].stack)
+    printed_stacks = len(re.findall(r"Stack(?: technique| técnico)?\s*:", text_of_pdf))
+    if printed_stacks != expected_stacks:
+        issues.append(Finding("blocker", f"{printed_stacks} Stack lines in the PDF for {expected_stacks} jobs.",
+                              "Every job shown prints its Stack line."))
+    if not master.contact_for(lang).get("phone") and re.search(r"\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}", text_of_pdf):
+        issues.append(Finding("blocker", "A phone number appears in the PDF.", "The contact line has no phone."))
+    pmp = re.search(r"PMP[^•\n]*", " ".join(text_of_pdf.split()))
+    if pmp and lang == "en" and "PMP: in progress (application approved, exam pending)" not in " ".join(text_of_pdf.split()):
+        issues.append(Finding("blocker", "PMP is not written as 'in progress (application approved, exam pending)'.",
+                              "Use the certification line from cv_master.toml as is."))
+    has_authorization = re.search(r"permanent resident|r[ée]sident permanent", text_of_pdf, re.IGNORECASE)
+    if lang == "es":  # the Chile resume carries neither the Canadian work authorization nor a mailing address
+        header = text_of_pdf.split("RESUMEN PROFESIONAL")[0]
+        address = master.contact.get("location", "")
+        if has_authorization:
+            issues.append(Finding("blocker", "The Chile resume shows the Canadian work authorization.", "Remove that line."))
+        if address and address in header:
+            issues.append(Finding("blocker", "The Chile resume shows the mailing address in its header.", "Chile has no address."))
+    elif not has_authorization:
         issues.append(Finding("major", "No work authorization line in the PDF.", "Add the work authorization line."))
     for field_name in ("email", "phone"):
-        value = master.contact.get(field_name, "")
+        value = master.contact_for(lang).get(field_name, "")
         if value and value not in text_of_pdf:
             issues.append(Finding("major", f"The contact {field_name} is missing from the PDF.", "Check the header."))
     status = FAIL if any(i.severity == "blocker" for i in issues) else REVIEW if any(
@@ -99,7 +119,7 @@ def verify_folder(folder: Path, master: CVMaster, roles: list[Role] | None = Non
     pdf = pdfs[0]
     content = ResumeContent.model_validate(json.loads(content_file.read_text(encoding="utf-8")))
     jd_text = jd_file.read_text(encoding="utf-8").split("\n\n", 1)[-1]
-    lang: Language = "fr" if "_CV_" in pdf.name else "en"
+    lang: Language = "es" if "_CV_ES_" in pdf.name else "fr" if "_CV_" in pdf.name else "en"
     return verify_resume(
         folder.name, content, lang, jd_text, page_count(pdf), pdf_text(pdf), master, roles,
         title=_field(jd_text, "Title"), location=_field(jd_text, "Location"), company=_field(jd_text, "Company"),

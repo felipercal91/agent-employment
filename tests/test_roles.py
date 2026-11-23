@@ -10,7 +10,7 @@ from job_assistant.cv import postular
 from job_assistant.cv.checks import skills_only_claims
 from job_assistant.cv.content import Bullet, JobBullets, ResumeContent, normalize, strip_dashes
 from job_assistant.cv.jd import JobDescription
-from job_assistant.cv.masters import build_masters, load_master_content, render_report
+from job_assistant.cv.masters import build_master, build_masters, load_master_content, render_report
 from job_assistant.cv.pipeline import generate_resume
 from job_assistant.cv.render import build_html
 from job_assistant.cv.roles import (
@@ -308,7 +308,7 @@ def test_load_master_content(master: Any, roles: list[Role], tmp_path: Path) -> 
     assert load_master_content(tmp_path, roles[0]) == ""
     build_masters(roles[:1], master, RecordingWriter([content()]), FakeReviewer([review(9)]), tmp_path,  # type: ignore[arg-type]
                   renderer=fake_render)
-    assert json.loads(load_master_content(tmp_path, roles[0]))["title"] == "Senior Java Developer"
+    assert json.loads(load_master_content(tmp_path, roles[0]))["title"] == roles[0].headline
 
 
 def test_report_lists_gap_keywords(master: Any, roles: list[Role], tmp_path: Path) -> None:
@@ -324,7 +324,7 @@ def test_process_row_starts_from_the_matching_master_and_records_it(
     sheet_path: Path, master: Any, roles: list[Role], tmp_path: Path,
 ) -> None:
     masters_dir = tmp_path / "masters"
-    build_masters(roles, master, RecordingWriter([content(title="MASTER TITLE")]), FakeReviewer([review(9)]),  # type: ignore[arg-type]
+    build_masters(roles, master, RecordingWriter([content(summary="MASTER SUMMARY")]), FakeReviewer([review(9)]),  # type: ignore[arg-type]
                   masters_dir, renderer=fake_render)
     add_row(sheet_path, link="https://job-boards.greenhouse.io/acme/jobs/1", role="Senior Java Developer")
     [row] = postular.pending_rows(sheet_path)
@@ -336,7 +336,7 @@ def test_process_row_starts_from_the_matching_master_and_records_it(
         roles=roles, masters_dir=masters_dir,
     )
     base = writer.role_bases[0]
-    assert base.role.id == "java" and "MASTER TITLE" in base.master_json
+    assert base.role.id == "java" and "MASTER SUMMARY" in base.master_json
     assert out.master.startswith("Backend Developer (Java)") and "coincide" in out.master
     [saved] = [r for r in postular.table(sheet_path).rows() if r["_row"] == row["_row"]]
     assert saved["master_role"] == out.master
@@ -409,7 +409,7 @@ def test_rebuilding_one_role_keeps_the_rest_of_the_index_and_report(
     out = tmp_path / "masters"
     build_masters(roles, master, RecordingWriter([content()]), FakeReviewer([review(9)]), out,  # type: ignore[arg-type]
                   renderer=fake_render)
-    build_masters([roles[2]], master, RecordingWriter([content(title="REBUILT")]), FakeReviewer([review(7)]), out,  # type: ignore[arg-type]
+    build_masters([roles[2]], master, RecordingWriter([content(summary="REBUILT")]), FakeReviewer([review(7)]), out,  # type: ignore[arg-type]
                   renderer=fake_render, all_roles=roles)
     index = json.loads((out / "roles_index.json").read_text(encoding="utf-8"))
     assert [e["id"] for e in index] == ["bsa", "guidewire-ba", "java", "lead"]  # all four, original order
@@ -417,8 +417,8 @@ def test_rebuilding_one_role_keeps_the_rest_of_the_index_and_report(
     for role in roles:
         assert f"## {role.name}" in report
     assert report.count("## Backend Developer (Java)") == 1 and "HR score 7.0/10" in report
-    assert json.loads(load_master_content(out, roles[2]))["title"] == "REBUILT"
-    assert json.loads(load_master_content(out, roles[0]))["title"] == "Senior Java Developer"  # untouched
+    assert json.loads(load_master_content(out, roles[2]))["summary"] == "REBUILT"
+    assert json.loads(load_master_content(out, roles[0]))["summary"] != "REBUILT"  # untouched
 
 
 # ---- title matching tolerates the variants real postings use -----------------------------------
@@ -498,3 +498,206 @@ def test_french_functional_analyst_titles_with_a_seniority_word_in_the_middle(ro
     other = Role("qa", "QA", "QA", "QA", ("Analyste QA",), ("UAT",), "x")
     for title in ("Analyste principal fonctionnel domaine commercial", "Analyste principal(e) fonctionnel(le)"):
         assert match_role(title, "", [other, fr]).role.id == "bsa-fr"
+
+
+def _familiar_master() -> Any:
+    from job_assistant.cv.master import CVMaster
+
+    raw = {
+        "experience": [
+            {"id": "a", "company": "A", "location": "X", "title_en": "Dev", "dates_en": "2020",
+             "bullets_en": ["Built Spring Boot services with SQL Server."]},
+            {"id": "b", "company": "B", "location": "X", "title_en": "Dev", "dates_en": "2019",
+             "bullets_en": ["Tracked sprint velocity in Azure DevOps."]},
+        ],
+        "skills": {
+            "tools_en": ["Java 8/17 (J2EE, JSP, JSF)", "Spring Boot", "SQL Server"],
+            "methodologies_en": [],
+            "familiar_en": ["JUnit and Mockito (personal projects)", "Apache Kafka (training)", "Docker (training)"],
+        },
+        "education": {"en": ["BSc"]}, "certifications": {"en": "AWS"}, "languages": {"en": "English"},
+    }
+    return CVMaster(contact={"name": "X"}, raw=raw)
+
+
+def test_training_only_skills_in_summary_competencies_or_bullets_are_blockers() -> None:
+    from job_assistant.cv.checks import familiar_claims, run_checks
+
+    master = _familiar_master()
+    bad = content(
+        summary="Backend developer who built event-driven integration with Kafka.",
+        competencies=["Spring Boot", "Docker"],
+        experience=[JobBullets(job_id="a", bullets=[Bullet(lead="", rest="Wrote unit tests with Mockito.")])],
+    )
+    assert familiar_claims(bad, master, "en") == ["Mockito", "Kafka", "Docker"]
+    findings = run_checks(bad, "en", master.source_text("en"), "", None, False, master)
+    assert any(f.severity == "blocker" and f.problem.startswith("Training-only skills") for f in findings)
+    clean = content(summary="Backend developer.", competencies=["Spring Boot"],
+                    experience=[JobBullets(job_id="a", bullets=[Bullet(lead="", rest="Built Spring Boot services.")])])
+    assert familiar_claims(clean, master, "en") == []
+
+
+def test_familiar_line_is_printed_but_is_not_part_of_the_facts() -> None:
+    from job_assistant.cv.render import build_html
+
+    master = _familiar_master()
+    html = build_html(_with_contact(master), content(experience=[]), "en")
+    assert "Familiar with / training:" in html and "JUnit and Mockito (personal projects)" in html
+    # the keyword and grounding checks must not count them as skills the candidate has
+    assert "Kafka" not in master.source_text("en") and "Mockito" not in master.source_text("en")
+
+
+def _with_contact(master: Any) -> Any:
+    from job_assistant.cv.master import CVMaster
+
+    return CVMaster(contact={"name": "X", "location": "T", "phone": "1", "email": "e@x.com", "linkedin": "l"},
+                    raw=master.raw)
+
+
+def test_a_versioned_tool_still_guards_its_bare_name() -> None:
+    master = _familiar_master()
+    claimed = _resume(("b", "Built Java services for claims."))   # job b's facts never mention Java
+    assert skills_only_claims(claimed, master, "en") == ["Java"]
+
+
+def _stack_master() -> Any:
+    from job_assistant.cv.master import CVMaster
+
+    raw = {
+        "experience": [
+            {"id": "ust", "company": "UST", "location": "X", "title_en": "Dev", "dates_en": "2021",
+             "stack_en": ["Java 8 and 17", "Oracle PL/SQL"],
+             "bullets_en": ["Built Spring Boot services.", "Developed Oracle PL/SQL code and tuned queries using EXPLAIN PLAN."]},
+            {"id": "trios", "company": "triOS", "location": "X", "title_en": "Assistant", "dates_en": "2022",
+             "stack_en": ["Disk imaging"], "bullets_en": ["Provided first-line support."]},
+        ],
+        "skills": {"tools_en": ["Spring Boot"], "methodologies_en": []},
+        "education": {"en": ["BSc"]}, "certifications": {"en": "AWS"}, "languages": {"en": "English"},
+    }
+    return CVMaster(contact={"name": "X", "email": "e@x.com", "linkedin": "l", "location": "Toronto, ON"}, raw=raw)
+
+
+def _role(**kw: Any) -> Role:
+    return Role("r", "R", "R", "R", ("x",), ("y",), "z", **kw)
+
+
+def test_each_job_prints_its_own_stack_line_and_the_contact_line_has_no_phone() -> None:
+    from job_assistant.cv.render import build_html
+
+    html = build_html(_stack_master(), content(experience=[
+        JobBullets(job_id="ust", bullets=[Bullet(lead="", rest="Built services.")]),
+        JobBullets(job_id="trios", bullets=[Bullet(lead="", rest="Gave support.")]),
+    ]), "en")
+    assert "<b>Stack:</b> Java 8 and 17, Oracle PL/SQL" in html and "<b>Stack:</b> Disk imaging" in html
+    assert "e@x.com | l | Toronto, ON" in html
+
+
+def test_a_role_drops_its_excluded_jobs_even_though_normalize_restores_every_job() -> None:
+    from job_assistant.cv.structure import apply_role_structure
+
+    master = _stack_master()
+    both = content(experience=[JobBullets(job_id=j, bullets=[Bullet(lead="", rest="x")]) for j in ("ust", "trios")])
+    kept, _ = apply_role_structure(both, master, "en", _role(exclude_jobs=("trios",)))
+    assert [e.job_id for e in kept.experience] == ["ust"]
+    assert [e.job_id for e in apply_role_structure(both, master, "en", _role())[0].experience] == ["ust", "trios"]
+
+
+def test_a_required_master_bullet_is_restored_only_when_missing() -> None:
+    from job_assistant.cv.structure import apply_role_structure
+
+    master = _stack_master()
+    role = _role(must_include=("ust:EXPLAIN PLAN",))
+    missing = content(experience=[JobBullets(job_id="ust", bullets=[Bullet(lead="", rest="Built services.")])])
+    fixed, added = apply_role_structure(missing, master, "en", role)
+    assert any("EXPLAIN PLAN" in b.text() for b in fixed.experience[0].bullets) and len(added) == 1
+    reworded = content(experience=[JobBullets(job_id="ust", bullets=[
+        Bullet(lead="", rest="Tuned slow queries with EXPLAIN PLAN on the policy tables.")])])
+    again, added = apply_role_structure(reworded, master, "en", role)
+    assert len(again.experience[0].bullets) == 1 and added == []
+
+
+def test_a_summary_must_state_one_profile() -> None:
+    from job_assistant.cv.checks import mixed_profile
+
+    assert mixed_profile(content(summary="Java developer and business analyst with 13 years.")) == ["developer and business analyst"]
+    assert mixed_profile(content(summary="Now targeting QA and Test Analyst roles.")) == ["Now targeting"]
+    assert mixed_profile(content(title="Senior Data / BI Analyst", summary="Data analyst with SQL and SSIS ETL.")) == []
+
+
+def test_the_roles_file_carries_the_trios_and_required_bullet_rules() -> None:
+    import tempfile
+
+    from job_assistant.cv.roles import load_roles
+
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "roles.toml").write_text(
+            '[[roles]]' + chr(10) + 'id = "a"' + chr(10) + 'name = "A"' + chr(10) + 'file_name = "A"' + chr(10)
+            + 'headline = "A"' + chr(10) + 'title_keywords = ["a"]' + chr(10) + 'ats_keywords = ["b"]' + chr(10)
+            + 'focus = "f"' + chr(10) + 'must_include = ["ust:EXPLAIN PLAN"]' + chr(10) + 'exclude_jobs = ["trios"]' + chr(10),
+            encoding="utf-8")
+        role = load_roles(Path(tmp))[0]
+    assert role.must_include == ("ust:EXPLAIN PLAN",) and role.exclude_jobs == ("trios",)
+
+
+def test_verify_blocks_a_pdf_missing_a_stack_line_a_phone_or_the_exact_pmp_wording() -> None:
+    from job_assistant.cv.verify import FAIL, verify_resume
+
+    master = _stack_master()
+    c = content(title="Backend Developer", summary="Backend developer who built Spring Boot services.",
+                competencies=["Spring Boot"], tools=["Spring Boot"], methodologies=[],
+                experience=[JobBullets(job_id="ust", bullets=[Bullet(lead="", rest="Built Spring Boot services.")])])
+    ok_text = ("Canadian Permanent Resident e@x.com Stack: Java 8 and 17, Oracle PL/SQL "
+               "PMP: in progress (application approved, exam pending)")
+    assert verify_resume("a", c, "en", "", 1, ok_text, master).status != FAIL
+    problems = lambda text: [i.problem for i in verify_resume("a", c, "en", "", 1, text, master).issues]  # noqa: E731
+    assert any("Stack lines" in p for p in problems(ok_text.replace("Stack:", "")))
+    assert any("phone" in p for p in problems(ok_text + " (647) 555-0123"))
+    assert any("PMP" in p for p in problems(ok_text.replace("PMP: in progress (application approved, exam pending)", "PMP (in progress)")))
+
+
+def test_headline_and_first_sentence_must_be_the_same_profile() -> None:
+    from job_assistant.cv.checks import mixed_profile
+
+    mixed = content(title="Senior Data / BI Analyst", summary="Senior Java developer with 13+ years. Built SSIS ETL.")
+    assert mixed_profile(mixed) == ["presents developer and analyst"]
+    assert mixed_profile(content(title="Business Systems Analyst | Insurance",
+                                 summary="Analyst in insurance platforms with 13+ years. Ran requirements workshops.")) == []
+    pivot = content(title="Business Systems Analyst | Insurance",
+                    summary="Insurance platforms as a Java developer and project manager. Ran requirements work.")
+    assert mixed_profile(pivot) == ["presents developer and analyst and project manager"]
+    # people the candidate worked with are not a second profile
+    assert mixed_profile(content(title="Senior Java Backend Developer",
+                                 summary="Java developer with 13+ years. Mentored a team of developers and analysts.")) == []
+    assert mixed_profile(content(title="Technical Team Lead | Java",
+                                 summary="Technical Team Lead with 13+ years. Stays hands-on in Java.")) == []
+    # a lead title with a developer summary, or an analyst title with a lead summary, is two profiles
+    assert mixed_profile(content(title="Technical Team Lead | Java", summary="Java developer with 13+ years.")) == [
+        "presents developer and lead"]
+    assert mixed_profile(content(title="Business Systems Analyst | Insurance",
+                                 summary="Senior Java and technical lead with 13+ years.")) == ["presents analyst and lead"]
+
+
+def test_a_master_is_written_with_the_roles_headline_whatever_the_writer_titled_it(master: Any, tmp_path: Path) -> None:
+    from job_assistant.cv.masters import build_master
+
+    role = Role("qa", "QA", "QA-Test", "QA / Test Analyst (Functional and Data Validation)", ("QA Analyst",), ("UAT",), "x")
+    result = build_master(role, master, RecordingWriter([content(title="Senior Software Engineer")]),  # type: ignore[arg-type]
+                          FakeReviewer([review(9)]), tmp_path, renderer=fake_render)  # type: ignore[arg-type]
+    saved = json.loads(result.content_file.read_text(encoding="utf-8"))
+    assert saved["title"] == "QA / Test Analyst (Functional and Data Validation)"
+
+
+def test_a_sentence_saying_the_experience_transfers_is_not_a_claim_of_the_product() -> None:
+    role = _role(verify_terms=("Guidewire", "ClaimCenter"))
+    source = "Built iAxis/INSIS integrations."
+    transfers = "Java developer. iAxis/INSIS, a P&C platform, is directly transferable experience to Guidewire ClaimCenter."
+    assert ungrounded_terms(role, transfers, source) == []
+    assert ungrounded_terms(role, "Java developer. Configured Guidewire ClaimCenter for a client.", source) == ["Guidewire", "ClaimCenter"]
+
+
+def test_the_education_heading_is_kept_with_its_entries() -> None:
+    from job_assistant.cv.render import CSS, build_html
+
+    master = _with_contact(_familiar_master())
+    html = build_html(master, content(experience=[]), "en")
+    assert '<div class="block"><h2>EDUCATION</h2>' in html and "break-inside: avoid-page" in CSS and "break-after: avoid-page" in CSS
