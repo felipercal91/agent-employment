@@ -1,18 +1,23 @@
 # data/
 
-Carpeta local con tus datos reales. **Todo lo que pongas aquí (excepto este README) está en `.gitignore`** y nunca se sube al repositorio.
+Local directory for your personal job search data. **Everything placed here (except this README) is gitignored** and will never be committed to GitHub.
 
-Estructura esperada (se irá usando fase a fase; los nombres exactos se confirman en cada fase):
+## Required Files
 
-```
+Copy the starter templates from `examples/` into this folder and remove `.example` from the filenames:
+
+```text
 data/
-├── tracker.xlsx              # Tu tracker actual (Fase 4 trabaja sobre una COPIA)
-├── cv/
-│   ├── cv_en.(pdf|docx|md)
-│   ├── cv_fr.(pdf|docx|md)   # Versión Quebec ("Développeur", nunca "Ingénieur")
-│   └── cv_en_kafka.(...)     # Variantes con/sin Kafka
-├── projects/                 # MiniBank, order-service-v2, etc. (md/txt)
-├── feedback/                 # Feedback real de entrevistas (md/txt)
-├── qa_history/               # Respuestas previas a formularios (Fase 6)
-└── contacts/                 # Notas de reclutadores (Fase 7)
+├── cv_master.toml          # Your master resume facts (jobs, dates, achievements, skills, education)
+├── cv_master_es.toml       # Optional: Spanish version of your master CV (for LATAM/Chile remote roles)
+├── profile.toml            # Your structured skills, work authorization, locations, and [situation]
+├── discovery.toml          # Target ATS boards (Greenhouse/Lever/Ashby), filters, and salary floor
+├── roles.toml              # Target role families, title keywords, and ATS keywords
+├── tracker.xlsx            # Your job tracker workbook (copy from examples/tracker.example.xlsx)
+├── backups/                # Automatic Excel backups created before every write
+├── inbox/                  # Optional: drop manual .txt job postings here to ingest on `search`
+├── cv/                     # Optional: existing CV files (pdf/docx/md) for RAG indexing
+├── projects/               # Optional: project notes (md/txt) for RAG indexing
+├── feedback/               # Optional: interview feedback notes (md/txt)
+└── qa_history/             # Optional: past application form answers (used as tone examples)
 ```
