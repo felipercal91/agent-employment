@@ -361,8 +361,25 @@ def process_row(
         picked = match_role(role, jd.text, spanish_roles(roles) if chile else roles)
         role_base = RoleBase(picked.role, load_master_content(masters_dir, picked.role) if masters_dir else "")
         master_note = f"{picked.role.name}. {picked.reason}"
+
+    # Collect sibling CVs already generated today so near-identical CVs get flagged and regenerated.
+    sibling_texts: list[tuple[str, str]] = []
+    if day_dir.is_dir():
+        from job_assistant.cv.checks import tailored_body
+        from job_assistant.cv.content import ResumeContent
+
+        for sib_json in day_dir.glob("*/resume_content.json"):
+            if sib_json.parent == folder:
+                continue
+            try:
+                sib_content = ResumeContent.model_validate_json(sib_json.read_text(encoding="utf-8"))
+                sibling_texts.append((sib_json.parent.name, tailored_body(sib_content)))
+            except Exception:
+                continue
+
     result = generate_resume(jd_text, master, lang, writer, reviewer, pdf,
-                             str(row.get("notes") or ""), max_rounds, renderer, quebec, role_base)
+                             str(row.get("notes") or ""), max_rounds, renderer, quebec, role_base,
+                             sibling_texts=sibling_texts or None)
     (folder / "job_description.txt").write_text(
         f"{link}\nSource: {jd.source}\n\n{jd_text}\n", encoding="utf-8"
     )
@@ -380,12 +397,18 @@ def process_row(
             f"\n> **{SUMMARY_WARNING}**\n\n## Notas del fiscalizador",
             1,
         )
-    (folder / "revision_hr.md").write_text(report, encoding="utf-8")
+    review_path = folder / "revision_hr.md"
+    review_path.write_text(report, encoding="utf-8")
+    if not review_path.is_file() or review_path.stat().st_size == 0:
+        raise RuntimeError(f"Send gate blocked: revision_hr.md was not written for {company} - {role}")
     # Machine-readable copies: let a CV be re-reviewed or audited later without regenerating it.
     (folder / "resume_content.json").write_text(result.content.model_dump_json(indent=2), encoding="utf-8")
     (folder / "hr_review.json").write_text(result.review.model_dump_json(indent=2), encoding="utf-8")
 
-    status = STATUS_READY if result.passed else STATUS_MANUAL
+    # Send gate: only STATUS_READY if HR review passed (score >= 7/10) AND revision_hr.md exists.
+    # Anything below 7/10 or failing goes to Estado = "Revisar" with the reviewer's notes.
+    passed_gate = result.passed and result.review.scores.average() >= 7.0 and review_path.is_file()
+    status = STATUS_READY if passed_gate else STATUS_REVIEW
     gaps = "; ".join(result.review.gaps_cannot_fix[:3])
     notes = result.review.notes_for_candidate + (f" Gaps: {gaps}." if gaps else "")
     if summary_only:
@@ -512,7 +535,7 @@ def audit_row(
     report.write_text(render_audit_report(review, findings, ok, company, role, reviewer_name), encoding="utf-8")
     gaps = "; ".join(review.gaps_cannot_fix[:3])
     notes = f"Auditoría {reviewer_name} {review.scores.average()}/10: {review.notes_for_candidate}"
-    status = STATUS_READY if ok else STATUS_MANUAL
+    status = STATUS_READY if (ok and review.scores.average() >= 7.0) else STATUS_REVIEW
     table(path).update(row["_row"], {
         "status": status, "hr_score": review.scores.average(),
         "hr_notes": notes + (f" Gaps: {gaps}." if gaps else ""),

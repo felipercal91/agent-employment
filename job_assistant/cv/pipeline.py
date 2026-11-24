@@ -13,7 +13,7 @@ from job_assistant.agents.hr_reviewer import (
     passes,
 )
 from job_assistant.agents.resume_writer import ResumeWriterAgent
-from job_assistant.cv.checks import Finding, run_checks
+from job_assistant.cv.checks import Finding, near_duplicate_check, run_checks, tailored_body
 from job_assistant.cv.content import ResumeContent, normalize
 from job_assistant.cv.master import CVMaster
 from job_assistant.cv.render import build_html, render_pdf
@@ -62,6 +62,7 @@ def generate_resume(
     renderer: Renderer = render_pdf,
     quebec: bool = False,
     role_base: RoleBase | None = None,
+    sibling_texts: list[tuple[str, str]] | None = None,
 ) -> ResumeResult:
     """Draft, check and review up to `max_rounds` times; the BEST round is the one rendered.
 
@@ -89,6 +90,18 @@ def generate_resume(
             claimed = ungrounded_terms(role_base.role, content.all_text() + "\n" + " ".join(content.tools), source)
             findings += [Finding("blocker", f"Claims '{t}', which is not in the candidate's facts.",
                                  f"Remove '{t}' and reframe the transferable experience instead.") for t in claimed]
+        master_body = ""
+        if role_base is not None and role_base.master_json:
+            try:
+                master_body = tailored_body(ResumeContent.model_validate_json(role_base.master_json))
+            except Exception:
+                master_body = role_base.master_json
+        dup_issues = near_duplicate_check(content, master_text=master_body, sibling_texts=sibling_texts)
+        findings += [
+            Finding("blocker", msg,
+                    "Tailor genuinely: mirror this posting's top 8-10 keywords across summary, competencies, and bullets using true facts from cv_master.toml.")
+            for msg in dup_issues
+        ]
         review = reviewer.review(jd_text, content, master, lang, findings)
         ok = passes(review, findings)
         serious = sum(1 for i in review.issues if i.severity != "minor") + sum(

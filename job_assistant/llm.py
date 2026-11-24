@@ -7,9 +7,13 @@ role can use a different one (see WRITER_PROVIDER / REVIEW_PROVIDER in .env).
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
+from collections.abc import Callable
 from typing import Any, TypeVar
 
+import httpx
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
@@ -19,11 +23,55 @@ from pydantic import BaseModel, ValidationError
 
 from job_assistant.config import ConfigError, Settings
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T", bound=BaseModel)
 
 PROVIDERS = ("anthropic", "deepseek")
 DEEPSEEK_TIMEOUT_SECONDS = 150.0
 DEEPSEEK_MAX_RETRIES = 4
+BACKOFF_BASE_SECONDS = 2.0
+
+
+def _is_transient_error(exc: Exception) -> bool:
+    """True for network, timeout, rate-limit, or 5xx errors worth retrying with backoff."""
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout,
+                        httpx.RemoteProtocolError, ConnectionError, TimeoutError)):
+        return True
+    name = type(exc).__name__.lower()
+    if any(k in name for k in ("connection", "timeout", "ratelimit", "internalserver", "serviceunavailable")):
+        return True
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and status in (429, 500, 502, 503, 504):
+        return True
+    msg = str(exc).lower()
+    return any(k in msg for k in ("connection error", "timed out", "read timeout", "temporarily unavailable", "bad gateway", "502", "503", "504"))
+
+
+def invoke_with_backoff(
+    fn: Callable[[], Any],
+    *,
+    max_attempts: int = DEEPSEEK_MAX_RETRIES,
+    base_delay: float = BACKOFF_BASE_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Call `fn()` retrying transient connection/5xx errors with exponential backoff."""
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if not _is_transient_error(e) or attempt >= max_attempts:
+                raise
+            last_err = e
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "Transient LLM error on attempt %d/%d (%s: %s). Retrying in %.1fs...",
+                attempt, max_attempts, type(e).__name__, str(e)[:120], delay,
+            )
+            sleep_fn(delay)
+    assert last_err is not None
+    raise last_err
 
 
 def get_chat_model(
@@ -118,7 +166,7 @@ class JsonModeStructured:
         conversation = self._with_instruction(list(messages))
         error: Exception | None = None
         for _ in range(self._retries + 1):
-            reply = self._llm.invoke(conversation, **kwargs)
+            reply = invoke_with_backoff(lambda: self._llm.invoke(conversation, **kwargs))
             text = message_text(reply)
             try:
                 return self._parse(text)
@@ -157,5 +205,5 @@ def message_text(message: BaseMessage) -> str:
 def check_connection(settings: Settings, provider: str = "anthropic") -> str:
     """Send a trivial prompt to the provider and return its text reply."""
     model = get_chat_model(settings, max_tokens=2048, provider=provider)
-    reply = model.invoke("Reply with exactly the word: OK")
+    reply = invoke_with_backoff(lambda: model.invoke("Reply with exactly the word: OK"))
     return message_text(reply).strip()

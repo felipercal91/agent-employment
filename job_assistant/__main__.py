@@ -658,6 +658,9 @@ def cmd_postular(args: argparse.Namespace) -> int:
     print_lock = threading.Lock()
     account_error_event = threading.Event()
 
+    outcomes: list[postular.RowOutcome] = []
+    error_details: list[str] = []
+
     def process_one(row: dict[str, Any]) -> None:
         nonlocal failures
         if account_error_event.is_set():
@@ -677,22 +680,24 @@ def cmd_postular(args: argparse.Namespace) -> int:
                 print(f"  ! {e}", file=sys.stderr)
             with failures_lock:
                 failures += 1
+                error_details.append(f"[row {row['_row']}] {label}: TrackerError: {e}")
             return
         except Exception as e:
             if _is_account_error(e):  # no credits / bad key: every next row would fail the same way
                 account_error_event.set()
                 with print_lock:
-                    print(f"  ! Stopped: the Anthropic API refused the request ({_short(e)}).\n"
+                    print(f"  ! Stopped: the API refused the request ({_short(e)}).\n"
                           "    Check your credits/API key, then run `postular` again: pending rows are kept.",
                           file=sys.stderr)
                 with failures_lock:
                     failures += 1
+                    error_details.append(f"[row {row['_row']}] {label}: AccountError: {_short(e)}")
                 return
             logging.getLogger(__name__).exception("Row %s failed", row["_row"])
             try:
                 postular.table(path, sheet_name).update(
                     row["_row"],
-                    {"status": postular.STATUS_ERROR, "hr_notes": f"Error: {type(e).__name__}. See console."}
+                    {"status": postular.STATUS_ERROR, "hr_notes": f"Error: {type(e).__name__}: {_short(e)}"}
                 )
             except Exception:
                 pass
@@ -700,10 +705,12 @@ def cmd_postular(args: argparse.Namespace) -> int:
                 print(f"  ! failed: {type(e).__name__}: {e}", file=sys.stderr)
             with failures_lock:
                 failures += 1
+                error_details.append(f"[row {row['_row']}] {label}: {type(e).__name__}: {_short(e)}")
             return
 
-        if out.master:
-            with used_lock:
+        with used_lock:
+            outcomes.append(out)
+            if out.master:
                 used.append((row["_row"], out.company, out.master))
         score = f" | HR {out.score}/10" if out.score is not None else ""
         cv_msg = f"  CV: {out.cv_path}" if out.cv_path else f"  {out.detail}"
@@ -724,10 +731,34 @@ def cmd_postular(args: argparse.Namespace) -> int:
             for f in as_completed(futures):
                 try:
                     f.result()
-                except Exception:
+                except Exception as exc:
                     logging.getLogger(__name__).exception("Worker thread uncaught exception")
+                    with failures_lock:
+                        failures += 1
+                        error_details.append(f"Worker exception: {type(exc).__name__}: {_short(exc)}")
         if account_error_event.is_set():
             return 2
+
+    cvs_generated = [o for o in outcomes if o.cv_path is not None]
+    ready_to_apply = [o for o in cvs_generated if o.status == postular.STATUS_READY]
+    needs_review = [o for o in cvs_generated if o.status != postular.STATUS_READY]
+
+    print("\n=== DAILY CV SUMMARY ===")
+    print(f"  Rows processed : {len(rows)}")
+    print(f"  CVs generated  : {len(cvs_generated)}")
+    print(f"  Ready to apply : {len(ready_to_apply)} (HR >= 7.0 & passed)")
+    print(f"  Needs review   : {len(needs_review)} (Estado = Revisar)")
+    print(f"  Errors         : {failures}")
+    if cvs_generated:
+        print("  HR scores:")
+        for o in sorted(cvs_generated, key=lambda x: x.score or 0.0, reverse=True):
+            tag = "READY" if o.status == postular.STATUS_READY else "REVISAR"
+            print(f"    - [{tag}] {o.score}/10 | {o.company} — {o.role}")
+    if error_details:
+        print("\n=== ERROR SUMMARY ===", file=sys.stderr)
+        for err in error_details:
+            print(f"  ! {err}", file=sys.stderr)
+
     if used:
         print("\nMaster used per row:")
         for number, company_name, note in used:
@@ -738,7 +769,8 @@ def cmd_postular(args: argparse.Namespace) -> int:
     summary = getattr(args, "summary", None)
     if summary is not None:  # the `daily` command reads these for its report
         summary.update(usage=usage_tracker.snapshot().describe(),
-                       run_dir=run_dir if run_dir.exists() else None, failures=failures)
+                       run_dir=run_dir if run_dir.exists() else None, failures=failures,
+                       error_details=error_details)
     print(f"Done. Results written to sheet '{sheet_name}' in {path}.")
     return 1 if failures else 0
 
@@ -893,15 +925,18 @@ def cmd_search(args: argparse.Namespace) -> int:
         include_chile=not args.no_chile,
     )
 
-    print(f"Búsqueda finalizada:")
-    print(f"  - Total vacantes leídas: {res.postings_found}")
-    print(f"  - Nuevas agregadas a 'Postular' (Canadá / Gob): {res.canada_added}")
-    print(f"  - Nuevas agregadas a 'Postular Chile': {res.chile_added}")
-    print(f"  - Duplicadas descartadas: {res.duplicates_skipped}")
-    print(f"  - Fuera de perfil / excluidas: {res.filtered_out}")
+    print("\n=== DAILY SEARCH SUMMARY ===")
+    print(f"  Jobs found      : {res.postings_found}")
+    print(f"  Added (Canada)  : {res.canada_added}")
+    print(f"  Added (Chile)   : {res.chile_added}")
+    print(f"  Duplicates      : {res.duplicates_skipped}")
+    print(f"  Filtered out    : {res.filtered_out}")
+    if res.filtered_reasons:
+        for reason, count in sorted(res.filtered_reasons.items(), key=lambda kv: -kv[1]):
+            print(f"    - {reason}: {count}")
     if res.errors:
-        print(f"  - Advertencias/errores: {len(res.errors)}")
-        for err in res.errors[:5]:
+        print(f"  Errors ({len(res.errors)}):", file=sys.stderr)
+        for err in res.errors:
             print(f"    ! {err}", file=sys.stderr)
 
     total_added = res.canada_added + res.chile_added
@@ -1200,8 +1235,8 @@ def main(argv: list[str] | None = None) -> int:
     post.set_defaults(func=cmd_postular)
 
     search_cmd = sub.add_parser("search", help="Morning search across Government (DND/JobBank), ATS boards, and Chile remote")
-    search_cmd.add_argument("--top-canada", type=int, default=20, help="Max Canadian/Government postings to add (default 20)")
-    search_cmd.add_argument("--top-chile", type=int, default=10, help="Max Chilean remote postings to add (default 10)")
+    search_cmd.add_argument("--top-canada", type=int, default=8, help="Max Canadian/Government postings to add (default 8; target 5-8 strong jobs/day)")
+    search_cmd.add_argument("--top-chile", type=int, default=5, help="Max Chilean remote postings to add (default 5)")
     search_cmd.add_argument("--no-jobbank", action="store_true", help="Skip Job Bank / Government search")
     search_cmd.add_argument("--no-boards", action="store_true", help="Skip ATS company boards")
     search_cmd.add_argument("--no-chile", action="store_true", help="Skip Chile GetOnBoard search")

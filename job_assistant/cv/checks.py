@@ -262,6 +262,39 @@ def mixed_profile(content: ResumeContent) -> list[str]:
     return found
 
 
+def tailored_body(content: ResumeContent) -> str:
+    """Normalized tailorable text (summary + competencies + bullets) used for similarity checks."""
+    parts = [content.summary, *content.competencies, *(b.text() for j in content.experience for b in j.bullets)]
+    return re.sub(r"\s+", " ", " ".join(parts)).strip().lower()
+
+
+def near_duplicate_check(
+    content: ResumeContent,
+    master_text: str = "",
+    sibling_texts: list[tuple[str, str]] | None = None,
+    threshold: float = 0.88,
+) -> list[str]:
+    """Flag CVs that are identical or near-identical to the role master or another CV generated today."""
+    current = tailored_body(content)
+    if not current:
+        return []
+    problems: list[str] = []
+    if master_text:
+        norm_master = re.sub(r"\s+", " ", master_text).strip().lower()
+        ratio = difflib.SequenceMatcher(None, current, norm_master).ratio()
+        if ratio >= threshold:
+            problems.append(f"CV is {ratio:.0%} identical to the role master (threshold {threshold:.0%})")
+    for label, sib in (sibling_texts or []):
+        norm_sib = re.sub(r"\s+", " ", sib).strip().lower()
+        if not norm_sib:
+            continue
+        ratio = difflib.SequenceMatcher(None, current, norm_sib).ratio()
+        if ratio >= threshold:
+            problems.append(f"CV is {ratio:.0%} identical to same-day CV '{label}' (threshold {threshold:.0%})")
+            break
+    return problems
+
+
 def leadership_upgrades(content: ResumeContent, master: CVMaster, lang: Language) -> list[str]:
     """Bullets that open with a leadership verb the matching fact does not use."""
     lead = LEAD_VERBS[lang]

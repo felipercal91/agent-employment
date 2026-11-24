@@ -96,23 +96,17 @@ and areas, in its own words), not a copy of the Tools line; avoid repeating the 
 same item across competencies, tools and methodologies.
 - Years and tenure (CRITICAL): "13+ years" describes overall software engineering / IT / insurance technology career experience (or Java). NEVER attach "13+ years" to Spring Boot (the candidate has 13+ years in software engineering/Java/insurance technology, but only 5 years with Spring Boot, from 2021). Spring Boot must either be stated separately as "5 years" or listed without a year count (e.g. "Software engineer with 13+ years in insurance technology, building production backend services in Java 8/17, including 5 years with Spring Boot microservices").
 - Honest titles with 13+ years: Never claim the candidate is a "[Title] with 13+ years" for a role the candidate never held for 13+ years (such as "Business Systems Analyst with 13+ years" or "Senior Data Engineer with 13+ years"). For analyst roles, open with: "Software engineer and technical lead with 13+ years in insurance technology, with strong requirements analysis and stakeholder experience". For data roles, open with: "Software engineer with 13+ years in insurance technology, including SQL, data migration and ETL work".
-- Experience: one entry per job id, in the facts' order. For an individual-contributor posting, \
-lead each job with hands-on technical work, then leadership. Never merge unrelated \
-achievements into one bullet. The whole CV must fit on 2 pages.
-- The candidate's own notes for this application, if any, are instructions to follow when \
-they do not conflict with the truth rules.
+- Hands-on developer profile (CRITICAL): The summary and the first 3-4 bullets of each job MUST focus on hands-on coding and technical engineering (Java 8/17, Spring Boot, REST APIs, Oracle SQL/PL/SQL, query tuning, microservices, production support/troubleshooting). Put coordination, stakeholder/BA, or PM work into at most ONE bullet at the end of a job.
+- Training-only technologies (CRITICAL): Never claim Kafka, React, Docker, or Kubernetes as professional experience in the summary, competencies, or job bullets. They may appear ONLY on the "Familiar with / training" line if present in <facts>.
+- Experience: one entry per job id, in the facts' order. Lead each job with hands-on technical work, then leadership/coordination in a single bullet at the end. Never merge unrelated achievements into one bullet. The whole CV must fit on 2 pages.
+- The candidate's own notes for this application, if any, are instructions to follow when they do not conflict with the truth rules.
 
-Tailoring (this is what makes the CV worth sending; do all five steps):
-1. Fill `tailoring_plan` first: the 5-8 most important requirements of the posting. For each, \
-quote the fact that supports it (or write 'none') and say where it will appear.
-2. Select: keep only the bullets that matter for this posting. Most recent job 4-6 bullets, \
-each other job 2-3. Leave out the least relevant ones; do not keep every bullet.
-3. Order: inside each job, put the bullet most relevant to the posting first.
-4. Rewrite: re-express at least half of the kept bullets in the posting's own vocabulary \
-(verbs, nouns, technology names) wherever the facts support it, keeping every number and the \
-real scope. Copy a bullet word for word only when it already matches the posting.
-5. The headline and summary must answer the posting's top 3 requirements with evidence from \
-the facts, not generic seniority text.
+Tailoring (this is what makes the CV worth sending; do all five steps — never output a near-copy of the role master or another CV from the same day):
+1. Fill `tailoring_plan` first: the 8-10 most important keywords and requirements of the posting. For each, quote the fact that supports it (or write 'none') and say where it will appear.
+2. Select: keep only the bullets that matter for this posting. Most recent job 4-6 bullets, each other job 2-3. Leave out the least relevant ones; do not keep every bullet.
+3. Order: inside each job, put the 3-4 most relevant hands-on coding/technical bullets FIRST, and at most one coordination/BA/PM bullet at the end.
+4. Rewrite: mirror the posting's top 8-10 supported keywords (verbs, nouns, technology names) across the summary, competencies, and at least half of the kept bullets using ONLY true facts from <facts>, keeping every number and the real scope. Copy a bullet word for word only when it already matches the posting.
+5. The headline and summary must answer the posting's top 3 requirements with hands-on evidence from the facts, not generic seniority text.
 Example, for a posting that asks for control-testing experience (any field works the same way):
   Fact: "Worked directly with the audit team to define the testing procedures for the new process, \
 cutting review time by 30%."
